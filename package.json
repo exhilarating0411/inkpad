@@ -1,0 +1,41 @@
+{
+  "name": "inkpad",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@lezer/highlight": "^1.2.5",
+    "codemirror": "^6.0.2",
+    "dompurify": "^3.4.18",
+    "idb-keyval": "^6.3.0",
+    "katex": "^0.18.11",
+    "marked": "^18.2.1",
+    "marked-katex-extension": "^5.1.13",
+    "nanoid": "^5.1.16",
+    "perfect-freehand": "^1.2.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "y-codemirror.next": "^0.3.6",
+    "y-indexeddb": "^9.0.12",
+    "yjs": "^13.6.33"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-pwa": "^2.0.0"
+  }
+}
