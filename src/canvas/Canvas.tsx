@@ -6,6 +6,7 @@ import { storeImage } from '../store/images'
 import { computeBBox, strokeOptions, strokePath } from './ink'
 import { elementBounds, elementInRect, pointInRect, rectFromPoints, strokeHit, type Rect } from './geometry'
 import { ImageView, StrokePath, TextBox } from './ElementViews'
+import { inkColor } from '../theme'
 
 export interface CanvasApi {
   undo(): void
@@ -519,7 +520,7 @@ export default function Canvas(props: Props) {
           pressure: isPen && !hl,
         }
         const path = livePathRef.current!
-        path.setAttribute('fill', hl ? ink.hlColor : ink.penColor)
+        path.style.fill = inkColor(hl ? ink.hlColor : ink.penColor)
         path.setAttribute('opacity', hl ? '0.35' : '1')
         scheduleLive()
         return

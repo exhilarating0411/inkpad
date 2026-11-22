@@ -13,6 +13,7 @@ A small OneNote-style notes app that runs in the browser and installs as an app 
   The paste button opens a "Paste here" box when the browser can't read the clipboard directly (e.g. Safari over plain http): tap it and choose Paste.
 - Select tool: click, or drag a rectangle to select. Move, delete, or resize with the round handle.
 - Undo and redo, multiple pages, and everything is saved on the device (IndexedDB), so it works offline
+- **Light / Dark / Auto** theme (the ◐ button, top right). Black ink and text turn white on dark paper; printing is always light.
 
 ## Documents (phase 2)
 

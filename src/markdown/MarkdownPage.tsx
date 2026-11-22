@@ -26,11 +26,11 @@ const docHighlight = HighlightStyle.define([
   { tag: t.strong, fontWeight: '700' },
   { tag: t.emphasis, fontStyle: 'italic' },
   { tag: t.strikethrough, textDecoration: 'line-through' },
-  { tag: t.link, color: '#2563eb' },
-  { tag: t.url, color: '#2563eb', opacity: '0.7' },
-  { tag: t.monospace, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', color: '#b4235a' },
-  { tag: t.quote, color: '#6b665c', fontStyle: 'italic' },
-  { tag: [t.processingInstruction, t.meta, t.contentSeparator], color: '#a8a294' },
+  { tag: t.link, color: 'var(--md-link)' },
+  { tag: t.url, color: 'var(--md-link)', opacity: '0.7' },
+  { tag: t.monospace, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', color: 'var(--md-code)' },
+  { tag: t.quote, color: 'var(--md-quote)', fontStyle: 'italic' },
+  { tag: [t.processingInstruction, t.meta, t.contentSeparator], color: 'var(--muted)' },
 ])
 
 export default function MarkdownPage({ pageId, title }: { pageId: string; title: string }) {

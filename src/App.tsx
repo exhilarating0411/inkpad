@@ -8,6 +8,7 @@ import type { PageKind, PageMeta, Tool } from './store/types'
 // The document editor is only downloaded when a document is opened.
 const MarkdownPage = lazy(() => import('./markdown/MarkdownPage'))
 import SyncSettings from './components/SyncSettings'
+import ThemeMenu from './components/ThemeMenu'
 import { getSyncState, onSyncState, type SyncState } from './sync/sync'
 import { createPage, deletePage, listPages, pagesMap, renamePage, workspaceReady } from './store/workspace'
 
@@ -109,6 +110,7 @@ export default function App() {
             {Icons.menu}
           </button>
           {current && <TitleInput key={current.id} page={current} />}
+          <ThemeMenu />
         </header>
         {current?.kind === 'markdown' && (
           <Suspense fallback={<div className="loading">Loading editor…</div>}>

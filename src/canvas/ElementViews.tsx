@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import type { ImageElement, StrokeElement, TextElement } from '../store/types'
 import { imageUrl } from '../store/images'
 import { strokeOptions, strokePath } from './ink'
+import { inkColor } from '../theme'
 
 // ---------- ink ----------
 
@@ -12,7 +13,7 @@ export const StrokePath = memo(function StrokePath({ el, ox = 0, oy = 0 }: { el:
   return (
     <path
       d={d}
-      fill={el.color}
+      style={{ fill: inkColor(el.color) }}
       opacity={el.highlighter ? 0.35 : 1}
       transform={tx || ty ? `translate(${tx} ${ty})` : undefined}
     />
@@ -104,7 +105,7 @@ export const TextBox = memo(function TextBox(props: {
         value={text}
         spellCheck
         placeholder="Type here…"
-        style={{ fontSize: el.fontSize, color: el.color }}
+        style={{ fontSize: el.fontSize, color: el.color ? inkColor(el.color) : undefined }}
         onFocus={() => {
           focused.current = true
           onFocus(el.id)

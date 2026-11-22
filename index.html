@@ -11,6 +11,14 @@
     <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <title>InkPad</title>
+    <script>
+      // set the theme before anything is drawn, so dark mode never flashes white
+      ;(function () {
+        var t = localStorage.getItem('inkpad:theme') || 'auto'
+        if (t === 'auto') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        document.documentElement.dataset.theme = t
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

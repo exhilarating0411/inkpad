@@ -2,8 +2,9 @@ import { useRef } from 'react'
 import type { Tool } from '../store/types'
 import type { CanvasApi, InkSettings } from '../canvas/Canvas'
 import { Icons } from './icons'
+import { INK, inkColor } from '../theme'
 
-export const PEN_COLORS = ['#1f1f1f', '#2563eb', '#dc2626', '#16a34a', '#7c3aed', '#ea580c']
+export const PEN_COLORS = [INK, '#2563eb', '#dc2626', '#16a34a', '#7c3aed', '#ea580c']
 export const HL_COLORS = ['#facc15', '#4ade80', '#38bdf8', '#f472b6', '#fb923c']
 export const PEN_SIZES = [2, 4, 7]
 export const HL_SIZES = [12, 20, 30]
@@ -39,7 +40,7 @@ export default function Toolbar({ tool, onTool, ink, onInk, api, zoom, selection
   const fileRef = useRef<HTMLInputElement>(null)
   const isHl = tool === 'highlighter'
   const showInk = tool === 'pen' || isHl
-  const showText = tool === 'text' || textActive
+  const showText = tool === 'text' || (tool === 'select' && textActive)
 
   return (
     <div className="toolbar" role="toolbar">
@@ -63,7 +64,7 @@ export default function Toolbar({ tool, onTool, ink, onInk, api, zoom, selection
             <button
               key={c}
               className={'swatch' + ((isHl ? ink.hlColor : ink.penColor) === c ? ' active' : '')}
-              style={{ ['--c' as string]: c }}
+              style={{ ['--c' as string]: inkColor(c) }}
               aria-label={`Colour ${c}`}
               onClick={() => onInk(isHl ? { hlColor: c } : { penColor: c })}
             />
@@ -89,7 +90,7 @@ export default function Toolbar({ tool, onTool, ink, onInk, api, zoom, selection
               key={c}
               {...keepFocus}
               className={'swatch' + (ink.textColor === c ? ' active' : '')}
-              style={{ ['--c' as string]: c }}
+              style={{ ['--c' as string]: inkColor(c) }}
               aria-label={`Text colour ${c}`}
               onClick={() => {
                 onInk({ textColor: c })

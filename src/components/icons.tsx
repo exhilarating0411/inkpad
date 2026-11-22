@@ -86,6 +86,12 @@ export const Icons = {
       <path d="M14 3v4h4M9 12h6M9 16h6" />
     </Svg>
   ),
+  theme: (
+    <Svg>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 3.5a8.5 8.5 0 000 17z" fill="currentColor" />
+    </Svg>
+  ),
   menu: (
     <Svg>
       <path d="M4 6h16M4 12h16M4 18h16" />
