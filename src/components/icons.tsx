@@ -86,6 +86,51 @@ export const Icons = {
       <path d="M14 3v4h4M9 12h6M9 16h6" />
     </Svg>
   ),
+  folder: (
+    <Svg>
+      <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+    </Svg>
+  ),
+  inbox: (
+    <Svg>
+      <path d="M4 13l2.5-7h11L20 13v5a1 1 0 01-1 1H5a1 1 0 01-1-1z" />
+      <path d="M4 13h4.5l1 2h5l1-2H20" />
+    </Svg>
+  ),
+  search: (
+    <Svg>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M16 16l4.5 4.5" />
+    </Svg>
+  ),
+  clock: (
+    <Svg>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </Svg>
+  ),
+  more: (
+    <Svg>
+      <circle cx="6" cy="12" r="1.2" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+      <circle cx="18" cy="12" r="1.2" fill="currentColor" />
+    </Svg>
+  ),
+  grip: (
+    <Svg>
+      <path d="M5 9h14M5 15h14" />
+    </Svg>
+  ),
+  up: (
+    <Svg>
+      <path d="M12 19V5M6 11l6-6 6 6" />
+    </Svg>
+  ),
+  down: (
+    <Svg>
+      <path d="M12 5v14M6 13l6 6 6-6" />
+    </Svg>
+  ),
   theme: (
     <Svg>
       <circle cx="12" cy="12" r="8.5" />

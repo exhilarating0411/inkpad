@@ -1,16 +1,17 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import Canvas, { type CanvasApi, type CanvasContext, type InkSettings } from './canvas/Canvas'
 import Toolbar, { HL_COLORS, HL_SIZES, PEN_COLORS, PEN_SIZES, TEXT_SIZES } from './components/Toolbar'
-import Sidebar from './components/Sidebar'
+import Navigator, { useWorkspaceVersion, type NavMode } from './components/Navigator'
 import { Icons } from './components/icons'
-import type { PageKind, PageMeta, Tool } from './store/types'
+import type { PageMeta, Tool } from './store/types'
+import { UNSORTED, folderPath, pageFolder } from './store/folders'
 
 // The document editor is only downloaded when a document is opened.
 const MarkdownPage = lazy(() => import('./markdown/MarkdownPage'))
 import SyncSettings from './components/SyncSettings'
 import ThemeMenu from './components/ThemeMenu'
 import { getSyncState, onSyncState, type SyncState } from './sync/sync'
-import { createPage, deletePage, listPages, pagesMap, renamePage, workspaceReady } from './store/workspace'
+import { listPages, pagesMap, renamePage, workspaceReady } from './store/workspace'
 
 const DEFAULT_INK: InkSettings = {
   penColor: PEN_COLORS[0],
@@ -41,7 +42,18 @@ function useStoredString<T extends string>(key: string, initial: T) {
   return [value, setValue] as const
 }
 
-const isWide = () => window.matchMedia('(min-width: 900px)').matches
+/** docked: both columns stay next to the page; overlay: they slide over it; phone: one column */
+const navModeFor = (w: number): NavMode => (w >= 1100 ? 'docked' : w >= 600 ? 'overlay' : 'phone')
+
+function useNavMode() {
+  const [mode, setMode] = useState(() => navModeFor(window.innerWidth))
+  useEffect(() => {
+    const on = () => setMode(navModeFor(window.innerWidth))
+    window.addEventListener('resize', on)
+    return () => window.removeEventListener('resize', on)
+  }, [])
+  return mode
+}
 const hasTouch = () => navigator.maxTouchPoints > 0
 
 export default function App() {
@@ -51,7 +63,11 @@ export default function App() {
   const [tool, setTool] = useStoredString<Tool>('inkpad:tool', 'pen')
   const [ink, setInk] = useStored<InkSettings>('inkpad:ink', DEFAULT_INK)
   const [penDetected, setPenDetected] = useState(() => localStorage.getItem('inkpad:pen') === '1')
-  const [sidebarOpen, setSidebarOpen] = useState(isWide)
+  const navMode = useNavMode()
+  const [navOpen, setNavOpen] = useState(() => navModeFor(window.innerWidth) === 'docked')
+  const [folder, setFolder] = useStoredString<string>('inkpad:folder', UNSORTED)
+  const [searchFocus, setSearchFocus] = useState(0)
+  useWorkspaceVersion() // folder names in the path above the title
   const [zoom, setZoom] = useState(1)
   const [canvasCtx, setCanvasCtx] = useState<CanvasContext>({ selectionCount: 0, textActive: false })
   const api = useRef<CanvasApi | null>(null)
@@ -81,8 +97,21 @@ export default function App() {
 
   const selectPage = (id: string) => {
     setCurrentId(id)
-    if (!isWide()) setSidebarOpen(false)
+    if (navMode !== 'docked') setNavOpen(false)
   }
+
+  // Ctrl/⌘+K: search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !document.querySelector('.cm-focused')) {
+        e.preventDefault()
+        setNavOpen(true)
+        setSearchFocus((n) => n + 1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const onPenDetected = useCallback(() => {
     localStorage.setItem('inkpad:pen', '1')
     setPenDetected(true)
@@ -91,25 +120,43 @@ export default function App() {
   if (!ready) return <div className="loading">Loading…</div>
 
   return (
-    <div className={'app' + (sidebarOpen ? ' with-sidebar' : '')}>
-      <Sidebar
-        pages={pages}
-        currentId={currentId}
-        open={sidebarOpen}
-        onSelect={selectPage}
-        onCreate={(kind: PageKind) => selectPage(createPage(kind).id)}
-        onDelete={(id) => void deletePage(id)}
-        onClose={() => setSidebarOpen(false)}
-        sync={sync}
-        onOpenSync={() => setSyncOpen(true)}
-      />
+    <div className="app">
+      {navOpen && (
+        <Navigator
+          mode={navMode}
+          currentId={currentId}
+          folder={folder}
+          onFolder={setFolder}
+          onOpenPage={selectPage}
+          onClose={() => setNavOpen(false)}
+          sync={sync}
+          onOpenSync={() => setSyncOpen(true)}
+          searchFocus={searchFocus}
+        />
+      )}
       {syncOpen && <SyncSettings state={sync} onClose={() => setSyncOpen(false)} />}
       <main className="main">
         <header className="header">
-          <button className="tbtn" aria-label="Pages" title="Pages" onClick={() => setSidebarOpen((o) => !o)}>
+          <button className="tbtn" aria-label="Pages" title="Folders and pages" onClick={() => setNavOpen((o) => !o)}>
             {Icons.menu}
           </button>
-          {current && <TitleInput key={current.id} page={current} />}
+          <div className="title-stack">
+            {current && (
+              <nav className="crumbs" aria-label="Folder">
+                {pageFolder(current) === UNSORTED ? (
+                  <button onClick={() => (setFolder(UNSORTED), setNavOpen(true))}>Unsorted</button>
+                ) : (
+                  folderPath(pageFolder(current)).map((f, i) => (
+                    <span key={f.id}>
+                      {i > 0 && <span className="sep-crumb">›</span>}
+                      <button onClick={() => (setFolder(f.id), setNavOpen(true))}>{f.name}</button>
+                    </span>
+                  ))
+                )}
+              </nav>
+            )}
+            {current && <TitleInput key={current.id} page={current} />}
+          </div>
           <ThemeMenu />
         </header>
         {current?.kind === 'markdown' && (

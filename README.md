@@ -15,6 +15,14 @@ A small OneNote-style notes app that runs in the browser and installs as an app 
 - Undo and redo, multiple pages, and everything is saved on the device (IndexedDB), so it works offline
 - **Light / Dark / Auto** theme (the ◐ button, top right). Black ink and text turn white on dark paper; printing is always light.
 
+## Organising pages
+
+- **Folders inside folders**, as deep as you need (e.g. Mathematics › Linear algebra). Use the ⋯ next to a folder to add a sub-folder, rename, move up/down, move or delete it (deleting keeps its pages).
+- **Two columns** on iPad and PC: folders on the left, the pages of the selected folder next to them. ☰ hides both while writing. On iPhone you step into folders like the Files app.
+- Pages are listed **oldest first**; drag the ≡ handle to arrange them by hand. ⋯ → **Move to…** moves a page to another folder.
+- **Recent** shows the last edited pages; **Search** (or Ctrl/⌘+K) looks through titles, typed text boxes and documents (not handwriting).
+- The folder path is shown above the page title; tap it to jump to the folder.
+
 ## Documents (phase 2)
 
 Tap **+** → **Document** for formal writing in Markdown:

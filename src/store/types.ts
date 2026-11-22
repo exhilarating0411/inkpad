@@ -9,6 +9,19 @@ export interface PageMeta {
   kind: PageKind
   created: number
   updated: number
+  /** folder the page is in; missing or unknown folder = Unsorted */
+  folderId?: string | null
+  /** position inside its folder (smaller = higher); missing = created time, i.e. oldest first */
+  order?: number
+}
+
+export interface FolderMeta {
+  id: string
+  name: string
+  /** parent folder, null = top level */
+  parentId: string | null
+  created: number
+  order: number
 }
 
 interface ElementBase {

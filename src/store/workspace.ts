@@ -1,7 +1,7 @@
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { nanoid } from 'nanoid'
-import type { CanvasElement, PageKind, PageMeta } from './types'
+import type { CanvasElement, FolderMeta, PageKind, PageMeta } from './types'
 
 /** Transaction origin for user edits that should be undoable. */
 export const LOCAL = 'local'
@@ -44,6 +44,7 @@ export function onLocalChange(fn: () => void) {
 export const workspaceDoc = new Y.Doc()
 const workspacePersistence = new IndexeddbPersistence('inkpad:workspace', workspaceDoc)
 export const pagesMap = workspaceDoc.getMap<PageMeta>('pages')
+export const foldersMap = workspaceDoc.getMap<FolderMeta>('folders')
 
 workspaceDoc.on('update', (_u: Uint8Array, origin: unknown) => {
   if (origin !== workspacePersistence && origin !== REMOTE) markDirty(WORKSPACE_DOC)
@@ -65,9 +66,14 @@ export function listPages(): PageMeta[] {
   return [...pagesMap.values()].sort((a, b) => a.created - b.created)
 }
 
-export function createPage(kind: PageKind = 'canvas', title = kind === 'canvas' ? 'Untitled page' : 'Untitled document'): PageMeta {
+export function createPage(
+  kind: PageKind = 'canvas',
+  title = kind === 'canvas' ? 'Untitled page' : 'Untitled document',
+  folderId: string | null = null,
+): PageMeta {
   const now = Date.now()
-  const meta: PageMeta = { id: nanoid(12), title, kind, created: now, updated: now }
+  // order = now puts a new page at the bottom (oldest first)
+  const meta: PageMeta = { id: nanoid(12), title, kind, created: now, updated: now, folderId, order: now }
   pagesMap.set(meta.id, meta)
   return meta
 }
@@ -105,6 +111,11 @@ async function deletePageData(id: string) {
   }
 }
 
+export function updatePage(id: string, patch: Partial<PageMeta>) {
+  const meta = pagesMap.get(id)
+  if (meta) pagesMap.set(id, { ...meta, ...patch })
+}
+
 // ---------- page documents: the contents of one page ----------
 
 export interface OpenPage {
@@ -117,6 +128,9 @@ export interface OpenPage {
 }
 
 const openPages = new Map<string, OpenPage>()
+/** the page document if it is already loaded (does not load it) */
+export const peekOpenPage = (id: string) => openPages.get(id)
+export const pageDbNameOf = (id: string) => `inkpad:page:${id}`
 const pageDbName = (id: string) => `inkpad:page:${id}`
 
 export function openPage(id: string): OpenPage {
