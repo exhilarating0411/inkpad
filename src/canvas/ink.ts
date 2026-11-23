@@ -1,18 +1,21 @@
 import { getStroke } from 'perfect-freehand'
 import type { StrokeElement } from '../store/types'
 
+/**
+ * Shape of a stroke. Computed when drawing, not stored, so a change here also
+ * applies to everything written before.
+ *
+ * Ink feels like a gel pen: the same width whatever the pressure (light
+ * pressure used to make thin lines that looked grey). A little streamline
+ * steadies the line without letting it trail far behind the pen.
+ */
 export function strokeOptions(s: Pick<StrokeElement, 'size' | 'highlighter' | 'pressure'>, last = true) {
-  return s.highlighter
-    ? { size: s.size, thinning: 0, smoothing: 0.5, streamline: 0.4, simulatePressure: false, last }
-    : {
-        size: s.size,
-        thinning: s.pressure ? 0.65 : 0.5,
-        smoothing: 0.5,
-        streamline: s.pressure ? 0.35 : 0.5,
-        simulatePressure: !s.pressure,
-        last,
-      }
+  if (s.highlighter) return { size: s.size, thinning: 0, smoothing: 0.5, streamline: 0.4, simulatePressure: false, last }
+  return { size: s.size, thinning: 0, smoothing: 0.5, streamline: 0.2, simulatePressure: false, last }
 }
+
+/** The live line is drawn this many milliseconds ahead of the pen, guessed from its movement. */
+export const PREDICT_MS = 12
 
 /** flat [x,y,p,x,y,p,...] → [[x,y,p], ...] */
 export function toTriples(flat: number[]): number[][] {

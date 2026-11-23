@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid'
 import type { CanvasElement, ImageElement, StrokeElement, TextElement, Tool, Viewport } from '../store/types'
 import { LOCAL, TYPING, openPage } from '../store/workspace'
 import { storeImage } from '../store/images'
-import { computeBBox, strokeOptions, strokePath } from './ink'
+import { PREDICT_MS, computeBBox, strokeOptions, strokePath } from './ink'
 import { elementBounds, elementInRect, pointInRect, rectFromPoints, strokeHit, type Rect } from './geometry'
 import { ImageView, StrokePath, TextBox } from './ElementViews'
 import { inkColor } from '../theme'
@@ -50,7 +50,19 @@ interface Props {
 }
 
 type Gesture =
-  | { kind: 'draw'; pointerId: number; points: number[]; color: string; size: number; highlighter: boolean; pressure: boolean }
+  | {
+      kind: 'draw'
+      pointerId: number
+      points: number[]
+      /** time of each point (ms), to guess where the pen is heading */
+      times: number[]
+      /** the pen touched down with pressure 0: the first real reading replaces the stand-in */
+      firstPressureMissing: boolean
+      color: string
+      size: number
+      highlighter: boolean
+      pressure: boolean
+    }
   | { kind: 'erase'; pointerId: number }
   | { kind: 'pan'; pointerId: number; lastX: number; lastY: number; startX: number; startY: number; moved: boolean; tap?: 'clear' | 'text' | 'eraser-toggle' }
   | { kind: 'pinch'; ids: [number, number]; startDist: number; startScale: number; worldX: number; worldY: number }
@@ -63,6 +75,34 @@ const MAX_SCALE = 8
 const clampScale = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))
 const vpKey = (id: string) => `inkpad:vp:${id}`
 const round1 = (n: number) => Math.round(n * 10) / 10
+
+/**
+ * The live line, extended to where the pen will probably be `ms` from now
+ * (from its speed over the last ~25 ms). Hides some of the delay between the
+ * pen and the screen; the guess is dropped when the pen lifts.
+ */
+function withPrediction(points: number[], times: number[], ms: number): number[] {
+  const n = times.length
+  if (ms <= 0 || n < 3) return points
+  const last = n - 1
+  let first = last
+  while (first > 0 && times[last] - times[first - 1] <= 25) first--
+  const dt = times[last] - times[first]
+  if (first === last || dt <= 0) return points
+  const vx = (points[last * 3] - points[first * 3]) / dt
+  const vy = (points[last * 3 + 1] - points[first * 3 + 1]) / dt
+  let dx = vx * ms
+  let dy = vy * ms
+  // never guess far: a sudden turn would draw a visible spike
+  const len = Math.hypot(dx, dy)
+  const max = 20
+  if (len > max) {
+    dx = (dx / len) * max
+    dy = (dy / len) * max
+  }
+  if (len < 0.5) return points
+  return [...points, points[last * 3] + dx, points[last * 3 + 1] + dy, points[last * 3 + 2]]
+}
 
 function isTextInput(el: Element | null) {
   return !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || (el as HTMLElement).isContentEditable)
@@ -410,7 +450,7 @@ export default function Canvas(props: Props) {
     const g = gesture.current
     const path = livePathRef.current
     if (!path || !g || g.kind !== 'draw') return
-    path.setAttribute('d', strokePath(g.points, strokeOptions(g, false)))
+    path.setAttribute('d', strokePath(withPrediction(g.points, g.times, PREDICT_MS), strokeOptions(g, false)))
   }
   const scheduleLive = () => {
     if (!liveFrame.current) liveFrame.current = requestAnimationFrame(renderLive)
@@ -514,6 +554,8 @@ export default function Canvas(props: Props) {
           kind: 'draw',
           pointerId: e.pointerId,
           points: [round1(w.x), round1(w.y), isPen ? e.pressure || 0.5 : 0.5],
+          times: [e.timeStamp],
+          firstPressureMissing: isPen && !e.pressure,
           color: hl ? ink.hlColor : ink.penColor,
           size: hl ? ink.hlSize : ink.penSize,
           highlighter: hl,
@@ -583,8 +625,15 @@ export default function Canvas(props: Props) {
           const n = g.points.length
           const x = round1(w.x)
           const y = round1(w.y)
+          const pressure = g.pressure ? Math.round((ev.pressure || 0.5) * 100) / 100 : 0.5
+          if (g.firstPressureMissing && ev.pressure > 0) {
+            // iPad often reports 0 at touch-down: keep the real first reading, not the stand-in
+            g.points[2] = pressure
+            g.firstPressureMissing = false
+          }
           if (x === g.points[n - 3] && y === g.points[n - 2]) continue
-          g.points.push(x, y, g.pressure ? Math.round((ev.pressure || 0.5) * 100) / 100 : 0.5)
+          g.points.push(x, y, pressure)
+          g.times.push(ev.timeStamp)
         }
         scheduleLive()
         return

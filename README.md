@@ -5,7 +5,7 @@ A small OneNote-style notes app that runs in the browser and installs as an app 
 ## Features (phase 1)
 
 - Free canvas pages: scroll and zoom anywhere
-- **Pen** and **highlighter**, pressure-sensitive with Apple Pencil and Surface Pen
+- **Pen** and **highlighter**; the pen writes like a gel pen (even width, no pressure variation) and is drawn slightly ahead of the pencil tip to feel more direct
 - **Palm rejection**: once a pen is used, fingers scroll and pinch instead of drawing (toggle with the ✋ button)
 - **Double-tap with a finger** to switch pen ⇄ eraser (Safari doesn't let web apps see the Apple Pencil's own double-tap)
 - **Text boxes**: pick the **T** tool and click anywhere to type. Drag the grey bar on top to move a box. Pick a colour and size (small, medium or large) for each box.
