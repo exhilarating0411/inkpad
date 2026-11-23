@@ -152,6 +152,56 @@ export const Icons = {
       <path d="M5 12h14" />
     </Svg>
   ),
+  book: (
+    <Svg>
+      <path d="M5 4.5A1.5 1.5 0 016.5 3H19v15H6.5A1.5 1.5 0 005 19.5z" />
+      <path d="M5 19.5A1.5 1.5 0 006.5 21H19v-3M9 7h6" />
+    </Svg>
+  ),
+  sidebar: (
+    <Svg>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="M9.5 4.5v15" />
+    </Svg>
+  ),
+  download: (
+    <Svg>
+      <path d="M12 4v11M7 10.5l5 5 5-5M5 20h14" />
+    </Svg>
+  ),
+  share: (
+    <Svg>
+      <path d="M12 15V4M8 8l4-4 4 4M6 12v7a1 1 0 001 1h10a1 1 0 001-1v-7" />
+    </Svg>
+  ),
+  indent: (
+    <Svg>
+      <path d="M4 5h16M10 10h10M10 14h10M4 19h16M4 9.5l3 2.5-3 2.5" />
+    </Svg>
+  ),
+  outdent: (
+    <Svg>
+      <path d="M4 5h16M10 10h10M10 14h10M4 19h16M7 9.5L4 12l3 2.5" />
+    </Svg>
+  ),
+  left: (
+    <Svg>
+      <path d="M15 5l-7 7 7 7" />
+    </Svg>
+  ),
+  right: (
+    <Svg>
+      <path d="M9 5l7 7-7 7" />
+    </Svg>
+  ),
+  palette: (
+    <Svg>
+      <path d="M12 3.5a8.5 8.5 0 000 17c1.2 0 1.8-.9 1.4-1.9-.5-1.2.3-2.4 1.6-2.4H17a3.5 3.5 0 003.5-3.5c0-5-3.8-9.2-8.5-9.2z" />
+      <circle cx="7.5" cy="11" r="1" fill="currentColor" />
+      <circle cx="10" cy="7" r="1" fill="currentColor" />
+      <circle cx="15" cy="7.5" r="1" fill="currentColor" />
+    </Svg>
+  ),
   close: (
     <Svg>
       <path d="M6 6l12 12M18 6L6 18" />

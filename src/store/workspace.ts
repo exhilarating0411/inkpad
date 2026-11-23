@@ -1,7 +1,7 @@
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { nanoid } from 'nanoid'
-import type { CanvasElement, FolderMeta, PageKind, PageMeta } from './types'
+import type { CanvasElement, FolderMeta, NotebookMeta, PageKind, PageMeta, SectionMeta } from './types'
 
 /** Transaction origin for user edits that should be undoable. */
 export const LOCAL = 'local'
@@ -44,6 +44,11 @@ export function onLocalChange(fn: () => void) {
 export const workspaceDoc = new Y.Doc()
 const workspacePersistence = new IndexeddbPersistence('inkpad:workspace', workspaceDoc)
 export const pagesMap = workspaceDoc.getMap<PageMeta>('pages')
+export const notebooksMap = workspaceDoc.getMap<NotebookMeta>('notebooks')
+export const sectionsMap = workspaceDoc.getMap<SectionMeta>('sections')
+/** small settings shared by all devices (e.g. which data layout the workspace uses) */
+export const settingsMap = workspaceDoc.getMap<unknown>('settings')
+/** folders of the old layout, read once when converting */
 export const foldersMap = workspaceDoc.getMap<FolderMeta>('folders')
 
 workspaceDoc.on('update', (_u: Uint8Array, origin: unknown) => {
@@ -58,22 +63,19 @@ pagesMap.observe((event) => {
   })
 })
 
-export const workspaceReady: Promise<void> = workspacePersistence.whenSynced.then(() => {
-  if (pagesMap.size === 0) createPage('canvas', 'My first page')
-})
-
-export function listPages(): PageMeta[] {
-  return [...pagesMap.values()].sort((a, b) => a.created - b.created)
-}
+/** The workspace is loaded from this device's storage (see structure.ts for the ready-to-use state). */
+export const workspaceReady: Promise<void> = workspacePersistence.whenSynced.then(() => undefined)
 
 export function createPage(
-  kind: PageKind = 'canvas',
+  kind: PageKind,
+  sectionId: string,
+  parentId: string | null = null,
+  order = Date.now(),
   title = kind === 'canvas' ? 'Untitled page' : 'Untitled document',
-  folderId: string | null = null,
+  id = nanoid(12),
 ): PageMeta {
   const now = Date.now()
-  // order = now puts a new page at the bottom (oldest first)
-  const meta: PageMeta = { id: nanoid(12), title, kind, created: now, updated: now, folderId, order: now }
+  const meta: PageMeta = { id, title, kind, created: now, updated: now, sectionId, parentId, order }
   pagesMap.set(meta.id, meta)
   return meta
 }

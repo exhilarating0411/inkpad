@@ -17,11 +17,24 @@ A small OneNote-style notes app that runs in the browser and installs as an app 
 
 ## Organising pages
 
-- **Folders inside folders**, as deep as you need (e.g. Mathematics › Linear algebra). Use the ⋯ next to a folder to add a sub-folder, rename, move up/down, move or delete it (deleting keeps its pages).
-- **Two columns** on iPad and PC: folders on the left, the pages of the selected folder next to them. ☰ hides both while writing. On iPhone you step into folders like the Files app.
-- Pages are listed **oldest first**; drag the ≡ handle to arrange them by hand. ⋯ → **Move to…** moves a page to another folder.
-- **Recent** shows the last edited pages; **Search** (or Ctrl/⌘+K) looks through titles, typed text boxes and documents (not handwriting).
-- The folder path is shown above the page title; tap it to jump to the folder.
+Like OneNote: **notebooks → sections → pages → sub-pages**.
+
+- **Notebooks**: the 📓 button at the top left switches notebooks and creates, renames, exports or deletes them.
+- **Sections** are the small coloured tabs along the top (e.g. Probability, Calculus, Linear Algebra). **+** adds one. Tap the open tab again (or right-click any tab) to rename it, change its colour, move it left/right or to another notebook, export it, or delete it.
+- **Pages** of the open section are listed on the left; the ▯ button at the top left hides the list while writing. On narrow screens the list slides over the page.
+- **Sub-pages**, up to 3 levels. ▾ / ▸ collapses and expands a page's sub-pages (remembered on each device). Drag the ≡ handle up/down to reorder, sideways to nest or un-nest, or onto a section tab to move the page there. The ⋯ menu also has **Add sub-page**, **Make sub-page**, **Promote** and **Move to section…**.
+- Deleting a page keeps its sub-pages (they move up one level). Deleting a section or notebook deletes its pages.
+- **Search** (🔍 or Ctrl/⌘+K) looks in the open notebook; one tap widens it to all notebooks. It finds titles, typed text boxes and documents (not handwriting). With an empty search box it shows the recently edited pages.
+- Older data with folders is converted automatically: each top-level folder becomes a section, a sub-folder becomes a page with its pages as sub-pages, and pages outside folders go to an “Unsorted” section.
+
+## Export to PDF
+
+Export a page (with its sub-pages), a section or a whole notebook from its menu. The PDF is made on the device and downloaded directly (on iPad: **Share / Save to Files**).
+
+- Handwriting stays sharp vector ink; each handwriting page becomes one PDF page as big as its content, so nothing is cut.
+- Documents are laid out like the preview (formulas, tables, pictures) on A4 pages, broken between paragraphs.
+- Bookmarks follow notebook → section → page → sub-page.
+- Typed text and documents are embedded as high-resolution images, so any language works but the text cannot be selected in the PDF.
 
 ## Documents (phase 2)
 
@@ -33,7 +46,7 @@ Tap **+** → **Document** for formal writing in Markdown:
 - Pictures: picture button, paste or drag and drop (stored on the device as `inkpad-img:` links)
 - Tick checkboxes directly in the preview
 - Enter continues lists; Ctrl/⌘+B, I and K for bold, italic and link
-- **⤓ .md** downloads the Markdown file; **Print / PDF** prints only the document (choose “Save as PDF”)
+- **⤓ .md** downloads the Markdown file; **Print / PDF** prints only the document (choose “Save as PDF”; the browser keeps the text selectable)
 
 ## Sync (phase 3)
 

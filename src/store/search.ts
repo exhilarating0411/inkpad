@@ -37,11 +37,14 @@ async function pageText(meta: PageMeta): Promise<string> {
   return text
 }
 
-/** Finds pages whose title or text contains every word of the query (any case). */
-export async function searchPages(query: string): Promise<SearchResult[]> {
+/**
+ * Finds pages whose title or text contains every word of the query (any case).
+ * `include` limits the search, e.g. to one notebook, so only those pages are read.
+ */
+export async function searchPages(query: string, include: (p: PageMeta) => boolean = () => true): Promise<SearchResult[]> {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (!words.length) return []
-  const pages = [...pagesMap.values()].sort((a, b) => b.updated - a.updated)
+  const pages = [...pagesMap.values()].filter(include).sort((a, b) => b.updated - a.updated)
   const texts = await Promise.all(pages.map((p) => pageText(p).catch(() => '')))
   const results: SearchResult[] = []
   pages.forEach((page, i) => {

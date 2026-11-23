@@ -42,6 +42,22 @@ function outlineToPath(points: number[][]): string {
   return d + 'Z'
 }
 
+/**
+ * The same smooth outline written with explicit Q commands only (each chained T
+ * becomes Q with its reflected control point). Used for PDF export, whose path
+ * reader does not handle chained T commands.
+ */
+export function strokePathExplicit(flat: number[], opts: ReturnType<typeof strokeOptions>): string {
+  const points = getStroke(toTriples(flat), opts)
+  const len = points.length
+  if (len < 4) return ''
+  const f = (n: number) => n.toFixed(2)
+  const mid = (a: number[], b: number[]) => `${f((a[0] + b[0]) / 2)},${f((a[1] + b[1]) / 2)}`
+  let d = `M${f(points[0][0])},${f(points[0][1])}`
+  for (let i = 1; i < len - 1; i++) d += ` Q${f(points[i][0])},${f(points[i][1])} ${mid(points[i], points[i + 1])}`
+  return d + ' Z'
+}
+
 export function computeBBox(flat: number[]): [number, number, number, number] {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
   for (let i = 0; i < flat.length; i += 3) {

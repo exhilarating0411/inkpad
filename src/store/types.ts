@@ -9,16 +9,38 @@ export interface PageMeta {
   kind: PageKind
   created: number
   updated: number
-  /** folder the page is in; missing or unknown folder = Unsorted */
-  folderId?: string | null
-  /** position inside its folder (smaller = higher); missing = created time, i.e. oldest first */
+  /** section the page belongs to */
+  sectionId?: string
+  /** parent page (for sub-pages); missing or null = top level of the section */
+  parentId?: string | null
+  /** position among its siblings (smaller = higher); missing = created time */
   order?: number
+  /** folder from the old layout; only read once, when the workspace is converted */
+  folderId?: string | null
 }
 
+/** A notebook: the biggest unit, holds sections. */
+export interface NotebookMeta {
+  id: string
+  name: string
+  created: number
+  order: number
+}
+
+/** A section: one tab in a notebook (e.g. "Calculus"), holds pages. */
+export interface SectionMeta {
+  id: string
+  notebookId: string
+  name: string
+  color: string
+  created: number
+  order: number
+}
+
+/** Folder from the old layout. Kept only so old data can be converted. */
 export interface FolderMeta {
   id: string
   name: string
-  /** parent folder, null = top level */
   parentId: string | null
   created: number
   order: number
