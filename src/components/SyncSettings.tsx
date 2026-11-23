@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useReducer, useState } from 'react'
 import { connect, disconnect, loadConfig, syncNow, type SyncState } from '../sync/sync'
+import { WORKSPACE_DOC, dirtyDocs, onDirtyChange, pagesMap } from '../store/workspace'
 
 export default function SyncSettings({ state, onClose }: { state: SyncState; onClose(): void }) {
   const saved = loadConfig()
+  const pending = usePending()
   const [owner, setOwner] = useState(saved?.owner ?? '')
   const [repo, setRepo] = useState(saved?.repo ?? 'inkpad-notes')
   const [token, setToken] = useState(saved?.token ?? '')
@@ -62,7 +64,7 @@ export default function SyncSettings({ state, onClose }: { state: SyncState; onC
         </details>
 
         {error && <p className="sync-error">{error}</p>}
-        {saved && !error && <p className="sync-ok">{describe(state)}</p>}
+        {saved && !error && <p className={isPending(state, pending) ? 'sync-waiting' : 'sync-ok'}>{describe(state, pending)}</p>}
 
         <div className="sync-actions">
           {saved && (
@@ -96,17 +98,45 @@ export default function SyncSettings({ state, onClose }: { state: SyncState; onC
   )
 }
 
-export function describe(s: SyncState): string {
+/** What this device has not uploaded yet. */
+export interface Pending {
+  pages: number
+  /** the list of notebooks, sections and pages changed */
+  structure: boolean
+}
+
+export function usePending(): Pending {
+  const [, bump] = useReducer((x: number) => x + 1, 0)
+  useEffect(() => {
+    const off = onDirtyChange(bump)
+    return () => void off()
+  }, [])
+  const ids = dirtyDocs()
+  return { pages: ids.filter((id) => pagesMap.has(id)).length, structure: ids.includes(WORKSPACE_DOC) }
+}
+
+function pendingText(p: Pending): string {
+  if (p.pages) return `${p.pages} page${p.pages === 1 ? '' : 's'} not uploaded yet`
+  if (p.structure) return 'Page list not uploaded yet'
+  return ''
+}
+
+/** Sync is on but something is still waiting to be uploaded (and no sync is running). */
+export const isPending = (s: SyncState, p: Pending) => s.kind !== 'off' && s.kind !== 'syncing' && (p.pages > 0 || p.structure)
+
+export function describe(s: SyncState, p: Pending = { pages: 0, structure: false }): string {
+  const waiting = pendingText(p)
   switch (s.kind) {
     case 'off':
       return 'Saved on this device · sync is off'
     case 'syncing':
       return 'Syncing…'
     case 'offline':
-      return 'Offline · will sync when back online'
+      return waiting ? `Offline · ${waiting}` : 'Offline · will sync when back online'
     case 'error':
-      return `Sync problem: ${s.message}`
+      return `Sync problem: ${s.message}${waiting ? ` · ${waiting}` : ''}`
     case 'idle':
+      if (waiting) return waiting
       return s.lastSync ? `Synced ${new Date(s.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Sync on'
   }
 }

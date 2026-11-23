@@ -15,28 +15,48 @@ export const REMOTE = 'remote'
 export const WORKSPACE_DOC = 'workspace'
 const DIRTY_KEY = 'inkpad:dirty'
 const dirty = new Set<string>(JSON.parse(localStorage.getItem(DIRTY_KEY) ?? '[]'))
+/** counts edits per document, so a sync can tell whether a page changed again while it was uploading */
+const editCount = new Map<string, number>()
 const changeListeners = new Set<() => void>()
-const saveDirty = () => localStorage.setItem(DIRTY_KEY, JSON.stringify([...dirty]))
+const dirtyListeners = new Set<() => void>()
+function saveDirty() {
+  localStorage.setItem(DIRTY_KEY, JSON.stringify([...dirty]))
+  dirtyListeners.forEach((fn) => fn())
+}
 
 export function markDirty(docId: string) {
   dirty.add(docId)
+  editCount.set(docId, (editCount.get(docId) ?? 0) + 1)
   saveDirty()
   changeListeners.forEach((fn) => fn())
 }
 export const dirtyDocs = () => [...dirty]
-export function clearDirty(docId: string) {
-  dirty.delete(docId)
-  saveDirty()
+export const editVersion = (docId: string) => editCount.get(docId) ?? 0
+/**
+ * Removes the "needs uploading" mark. With `version`, only if the document was
+ * not edited again since that version was read (those edits still need uploading).
+ */
+export function clearDirty(docId: string, version?: number) {
+  if (version !== undefined && editVersion(docId) !== version) return
+  if (dirty.delete(docId)) saveDirty()
 }
 /** Used when sync is first switched on: everything on this device needs uploading. */
 export function markEverythingDirty() {
-  dirty.add(WORKSPACE_DOC)
-  for (const id of pagesMap.keys()) dirty.add(id)
+  for (const id of [WORKSPACE_DOC, ...pagesMap.keys()]) {
+    dirty.add(id)
+    editCount.set(id, (editCount.get(id) ?? 0) + 1)
+  }
   saveDirty()
 }
+/** An edit was made on this device (used to start a sync). */
 export function onLocalChange(fn: () => void) {
   changeListeners.add(fn)
   return () => changeListeners.delete(fn)
+}
+/** The set of documents waiting to be uploaded changed (used by the sync status). */
+export function onDirtyChange(fn: () => void) {
+  dirtyListeners.add(fn)
+  return () => dirtyListeners.delete(fn)
 }
 
 // ---------- workspace: the list of pages ----------

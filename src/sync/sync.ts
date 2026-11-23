@@ -12,6 +12,11 @@
  *
  * To know exactly what to upload, each document has a "shadow" copy holding
  * only what is already on GitHub; the upload is the difference.
+ *
+ * A document stays marked "needs uploading" until its upload is committed, so
+ * an interrupted sync (tab closed, connection lost) is simply redone next time.
+ * As a safety net, the first sync after the app starts compares every
+ * document with its shadow and uploads anything GitHub does not have yet.
  */
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
@@ -23,11 +28,15 @@ import {
   WORKSPACE_DOC,
   clearDirty,
   dirtyDocs,
+  editVersion,
   loadDoc,
   markDirty,
   markEverythingDirty,
   onLocalChange,
+  pageDbNameOf,
   pagesMap,
+  peekOpenPage,
+  workspaceDoc,
   workspaceReady,
 } from '../store/workspace'
 import { clearPendingImage, getImageBlob, pendingImages, setRemoteImageFetcher } from '../store/images'
@@ -174,6 +183,12 @@ async function syncOnce() {
     await workspaceReady
     for (let attempt = 0; attempt < 4; attempt++) {
       if (await syncRound(gh)) {
+        // once per app start, after taking in the other devices' changes:
+        // find anything an earlier, interrupted sync did not upload
+        if (!checkedEverything) {
+          checkedEverything = true
+          if (await markUnuploaded()) again = true
+        }
         setState({ kind: 'idle', lastSync: Date.now() })
         return
       }
@@ -258,12 +273,15 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
       clearDirty(docId)
       continue
     }
-    clearDirty(docId) // edits made from now on mark it dirty again
+    // the mark is only removed once the upload is committed, and only if the
+    // document was not edited again meanwhile (see afterCommit below)
+    const version = editVersion(docId)
+    afterCommit.push(async () => clearDirty(docId, version))
     const doc = await loadDoc(docId)
     const shadow = await openShadow(docId)
     const remoteFiles = byDoc.get(docId) ?? []
     const diff = Y.encodeStateAsUpdate(doc, Y.encodeStateVector(shadow.doc))
-    const hasChanges = !isEmptyUpdate(diff)
+    const hasChanges = hasSomethingNew(shadow.doc, diff)
     debug('check', docId, { diffBytes: diff.length, remoteFiles: remoteFiles.length })
     if (remoteFiles.length + (hasChanges ? 1 : 0) >= COMPACT_AT) {
       // merge everything into one snapshot and drop the small files
@@ -314,8 +332,7 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
     const msg = `Sync from ${deviceLabel()} (${add.length} added${remove.length ? `, ${remove.length} merged/removed` : ''})`
     const committed = await gh.commit(head, msg, add, [...new Set(remove)])
     if (!committed) {
-      // someone else pushed first: re-mark our documents and start over
-      for (const docId of order) if (docId === WORKSPACE_DOC || pagesMap.has(docId)) markDirty(docId)
+      // someone else pushed first: start over (our documents are still marked)
       await set('applied', [...applied], meta)
       return false
     }
@@ -339,9 +356,60 @@ function workspaceKnown(applied: Set<string>, files: RemoteFile[]) {
   return files.filter((f) => f.path.startsWith('workspace/')).every((f) => applied.has(f.path))
 }
 
-function isEmptyUpdate(u: Uint8Array) {
-  // an update with no inserts and no deletes encodes as [0, 0]
-  return u.length <= 2
+/**
+ * True when `update` holds anything (new content or deletions) that the
+ * shadow, i.e. GitHub, does not have yet. A difference update always carries
+ * all of the document's deletions, even old ones, so its size says nothing.
+ */
+function hasSomethingNew(shadow: Y.Doc, update: Uint8Array) {
+  return !Y.snapshotContainsUpdate(Y.snapshot(shadow), update)
+}
+
+/** set once the full check below has run since the app started */
+let checkedEverything = false
+
+/**
+ * Compares every document on this device with its shadow and marks the ones
+ * holding changes GitHub does not have (e.g. a sync was cut off by closing the
+ * tab). Returns how many were found.
+ */
+async function markUnuploaded(): Promise<number> {
+  const waiting = new Set(dirtyDocs())
+  let found = 0
+  for (const docId of [WORKSPACE_DOC, ...pagesMap.keys()]) {
+    if (waiting.has(docId)) continue
+    const shadow = await openShadowDoc(docId)
+    try {
+      const behind = await withLocalDoc(docId, (doc) => hasSomethingNew(shadow.doc, Y.encodeStateAsUpdate(doc, Y.encodeStateVector(shadow.doc))))
+      if (behind) {
+        debug('not uploaded yet', docId)
+        markDirty(docId)
+        found++
+      }
+    } finally {
+      await shadow.close()
+    }
+  }
+  return found
+}
+
+/** This device's copy of a document; pages that are not open are loaded only for the moment. */
+async function withLocalDoc<T>(docId: string, fn: (doc: Y.Doc) => T): Promise<T> {
+  if (docId === WORKSPACE_DOC) return fn(workspaceDoc)
+  const open = peekOpenPage(docId)
+  if (open) {
+    await open.ready
+    return fn(open.doc)
+  }
+  const doc = new Y.Doc()
+  const p = new IndexeddbPersistence(pageDbNameOf(docId), doc)
+  await p.whenSynced
+  try {
+    return fn(doc)
+  } finally {
+    await p.destroy()
+    doc.destroy()
+  }
 }
 
 function deviceLabel() {

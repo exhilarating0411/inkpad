@@ -1123,6 +1123,17 @@ p.sync-ok {
   height: 16px;
 }
 
+/* sync is on but this device still has changes to upload */
+.sync-pending .sync-dot {
+  background: #f59e0b;
+}
+
+p.sync-waiting {
+  margin: 0;
+  font-size: 14px;
+  color: #b45309;
+}
+
 .sync-mini {
   display: grid;
   place-items: center;

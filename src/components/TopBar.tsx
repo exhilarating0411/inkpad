@@ -15,7 +15,7 @@ import {
 } from '../store/structure'
 import type { SectionMeta } from '../store/types'
 import type { SyncState } from '../sync/sync'
-import { describe } from './SyncSettings'
+import { describe, isPending, usePending } from './SyncSettings'
 import ThemeMenu from './ThemeMenu'
 import { ActionMenu, PickDialog, SectionDialog, menuAt, useWorkspaceVersion, type OpenMenu } from './Menu'
 import { Icons } from './icons'
@@ -42,6 +42,7 @@ export default function TopBar(props: Props) {
   const [editing, setEditing] = useState<{ section?: SectionMeta } | null>(null)
   const [movingSection, setMovingSection] = useState<SectionMeta | null>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
+  const pending = usePending()
 
   const nb = notebooksMap.get(props.notebookId)
   const sections = nb ? sectionsOf(nb.id) : []
@@ -171,7 +172,12 @@ export default function TopBar(props: Props) {
       <button className="tbtn" aria-label="Search" title="Search (Ctrl/⌘+K)" onClick={props.onSearch}>
         {Icons.search}
       </button>
-      <button className={'sync-mini sync-' + props.sync.kind} title={props.sync.kind === 'off' ? 'Sync is off' : describe(props.sync)} onClick={props.onOpenSync}>
+      <button
+        className={'sync-mini sync-' + props.sync.kind + (isPending(props.sync, pending) ? ' sync-pending' : '')}
+        title={props.sync.kind === 'off' ? 'Sync is off' : describe(props.sync, pending)}
+        aria-label="Sync status"
+        onClick={props.onOpenSync}
+      >
         <span className="sync-dot" />
       </button>
       <ThemeMenu />

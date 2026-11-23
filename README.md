@@ -54,7 +54,9 @@ Notes sync through a **private** GitHub repository; the app itself is published 
 
 - Tap the sync line at the bottom of the page list → enter your GitHub user name, the notes repository and an access token.
 - Every device keeps a full copy and works offline; changes are uploaded a few seconds after you stop editing, every 20 s while the app is open, and when you switch away from it.
-- Each upload is a new small file, so devices never overwrite each other; edits from different devices are merged.
+- Each upload is a new small file, so devices never overwrite each other; edits from different devices are merged (text written on two devices is kept from both).
+- A page stays marked for upload until GitHub has really received it, so a sync cut off by closing the tab is redone next time. On every start the app also compares each page with what GitHub has and uploads anything missing.
+- The sync line (and the dot at the top right) shows how many pages are **not uploaded yet**; the dot turns amber while anything is waiting.
 - Many small files are merged into one snapshot automatically to keep the repository small.
 
 Repository layout: `workspace/` (page list), `pages/<id>/` (page contents), `images/` (pictures).

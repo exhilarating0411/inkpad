@@ -22,7 +22,7 @@ import {
 } from '../store/structure'
 import { searchPages, type SearchResult } from '../store/search'
 import type { SyncState } from '../sync/sync'
-import { describe } from './SyncSettings'
+import { describe, isPending, usePending } from './SyncSettings'
 import { ActionMenu, PickDialog, menuAt, useWorkspaceVersion, type OpenMenu, type PickItem } from './Menu'
 import { Icons } from './icons'
 import type { ExportRequest } from '../export/plan'
@@ -74,6 +74,7 @@ export default function PageTree(props: Props) {
   const [menu, setMenu] = useState<OpenMenu>(null)
   const [picking, setPicking] = useState<{ title: string; items: PickItem[]; onPick(id: string): void } | null>(null)
   const [collapsed, setCollapsed, toggle] = useCollapsed()
+  const pending = usePending()
 
   // the open page is always visible: its parents are expanded
   useEffect(() => {
@@ -198,9 +199,13 @@ export default function PageTree(props: Props) {
             </div>
           </>
         )}
-        <button className={'sidebar-foot sync-' + props.sync.kind} onClick={props.onOpenSync} title="Sync settings">
+        <button
+          className={'sidebar-foot sync-' + props.sync.kind + (isPending(props.sync, pending) ? ' sync-pending' : '')}
+          onClick={props.onOpenSync}
+          title="Sync settings"
+        >
           <span className="sync-dot" />
-          <span>{props.sync.kind === 'off' ? 'Sync is off · tap to set up' : describe(props.sync)}</span>
+          <span>{props.sync.kind === 'off' ? 'Sync is off · tap to set up' : describe(props.sync, pending)}</span>
         </button>
       </aside>
       {overlays}
