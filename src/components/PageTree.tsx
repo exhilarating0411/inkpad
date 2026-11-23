@@ -25,6 +25,7 @@ import type { SyncState } from '../sync/sync'
 import { describe, isPending, usePending } from './SyncSettings'
 import { ActionMenu, PickDialog, menuAt, useWorkspaceVersion, type OpenMenu, type PickItem } from './Menu'
 import { Icons } from './icons'
+import { APP_VERSION, useNewerVersion, versionLabel } from '../version'
 import type { ExportRequest } from '../export/plan'
 import { pageExport } from '../export/plan'
 
@@ -75,6 +76,7 @@ export default function PageTree(props: Props) {
   const [picking, setPicking] = useState<{ title: string; items: PickItem[]; onPick(id: string): void } | null>(null)
   const [collapsed, setCollapsed, toggle] = useCollapsed()
   const pending = usePending()
+  const newer = useNewerVersion()
 
   // the open page is always visible: its parents are expanded
   useEffect(() => {
@@ -199,6 +201,14 @@ export default function PageTree(props: Props) {
             </div>
           </>
         )}
+        <div className="version-line">
+          <span>Version {versionLabel(APP_VERSION)}</span>
+          {newer && (
+            <span className="version-new">
+              Newer version online ({versionLabel(newer)}). Close InkPad completely and open it again to update.
+            </span>
+          )}
+        </div>
         <button
           className={'sidebar-foot sync-' + props.sync.kind + (isPending(props.sync, pending) ? ' sync-pending' : '')}
           onClick={props.onOpenSync}

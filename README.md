@@ -14,6 +14,7 @@ A small OneNote-style notes app that runs in the browser and installs as an app 
 - Select tool: click, or drag a rectangle to select. Move, delete, or resize with the round handle.
 - Undo and redo, multiple pages, and everything is saved on the device (IndexedDB), so it works offline
 - **Light / Dark / Auto** theme (the ◐ button, top right). Black ink and text turn white on dark paper; printing is always light.
+- The **version** (build time · commit) is shown at the bottom of the page list. When a newer version is online it says so; close the app completely and open it again to update (on iPad, twice).
 
 ## Organising pages
 
