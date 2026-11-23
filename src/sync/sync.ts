@@ -2,9 +2,15 @@
  * Sync engine: keeps this device and a private GitHub repository in step.
  *
  * Layout of the notes repository:
- *   workspace/<file>.bin    page list (Yjs updates)
- *   pages/<pageId>/<file>   contents of one page (Yjs updates)
- *   images/<imageId>        pictures
+ *   v2/workspace/<file>        page list (Yjs updates)
+ *   v2/pages/<pageId>/<file>   contents of one page (Yjs updates)
+ *   images/<imageId>           pictures
+ * Files ending in .b64 hold the update as base64 text: text can be sent inside
+ * the tree request, so a whole upload costs only three write requests. Very
+ * large updates are still uploaded as binary .bin blobs.
+ * Older app versions used workspace/ and pages/ (binary .bin files); those are
+ * still read. New files go to v2/ so that an older app, which would misread
+ * the text files, does not see them at all.
  *
  * Every upload is a NEW file with a unique name, so two devices never write
  * the same file and never conflict. Yjs merges the updates, in any order.
@@ -17,12 +23,16 @@
  * an interrupted sync (tab closed, connection lost) is simply redone next time.
  * As a safety net, the first sync after the app starts compares every
  * document with its shadow and uploads anything GitHub does not have yet.
+ *
+ * Uploads stay within GitHub's limit on writes (see budget.ts); GitHub asking
+ * to slow down is respected.
  */
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { createStore, get, set } from 'idb-keyval'
 import { nanoid } from 'nanoid'
-import { GitHub, GitHubError, type RemoteFile, type SyncConfig } from './github'
+import { GitHub, GitHubError, fromBase64, toBase64, type NewFile, type RemoteFile, type SyncConfig } from './github'
+import { writeBudget } from './budget'
 import {
   REMOTE,
   WORKSPACE_DOC,
@@ -49,10 +59,22 @@ export type SyncState =
   | { kind: 'error'; message: string }
 
 const CONFIG_KEY = 'inkpad:sync'
-const POLL_MS = 20_000
-const AFTER_EDIT_MS = 4_000
+/** how often to look for other devices' changes while the app is on screen (unchanged answers are free) */
+const POLL_MS = 5_000
+/** upload this long after the last edit */
+const AFTER_EDIT_MS = 1_500
 /** merge a folder into one snapshot once it has this many files */
 const COMPACT_AT = 30
+/** files up to this size (base64 characters) go inside the tree request… */
+const MAX_INLINE_FILE = 512 * 1024
+/** …as long as the request stays below this size */
+const MAX_INLINE_TOTAL = 3 * 1024 * 1024
+/** larger files are uploaded as blobs, at most this many per commit; the rest follow in the next one */
+const MAX_BLOBS_PER_COMMIT = 10
+/** downloads running at the same time */
+const PARALLEL_DOWNLOADS = 6
+/** new files go here; old ones (without the prefix) are still read */
+const V2 = 'v2/'
 
 const meta = createStore('inkpad-sync', 'meta')
 const debug = (...a: unknown[]) => localStorage.getItem('inkpad:debug') && console.log('[sync]', ...a)
@@ -107,9 +129,14 @@ export function onSyncState(fn: (s: SyncState) => void) {
 
 let pollTimer = 0
 let editTimer = 0
+let laterTimer = 0
 let running: Promise<void> | null = null
 let again = false
 let stopEdits: (() => void) | null = null
+/** GitHub asked us to send nothing before this time */
+let blockedUntil = 0
+/** the app was put away: upload now even if the write budget is used up */
+let flushRequested = false
 
 export function start() {
   if (!loadConfig() || stopEdits) return
@@ -132,6 +159,7 @@ function stop() {
   stopEdits = null
   clearTimeout(pollTimer)
   clearTimeout(editTimer)
+  clearTimeout(laterTimer)
   setRemoteImageFetcher(null)
   window.removeEventListener('online', onOnline)
   document.removeEventListener('visibilitychange', onVisibility)
@@ -139,7 +167,10 @@ function stop() {
 
 const onOnline = () => void syncNow()
 // Sync when the app is put away (so the other device sees it) and when it comes back.
-const onVisibility = () => void syncNow()
+const onVisibility = () => {
+  if (document.visibilityState === 'hidden') flushRequested = true
+  void syncNow()
+}
 
 function schedulePoll() {
   clearTimeout(pollTimer)
@@ -147,6 +178,12 @@ function schedulePoll() {
     if (document.visibilityState === 'visible') void syncNow()
     schedulePoll()
   }, POLL_MS)
+}
+
+/** Syncs again after `ms` (the write budget or GitHub asked to wait). */
+function syncLater(ms: number) {
+  clearTimeout(laterTimer)
+  laterTimer = window.setTimeout(() => void syncNow(), Math.max(500, ms))
 }
 
 /** Runs one sync now (or right after the one in progress). */
@@ -169,20 +206,27 @@ export function syncNow(): Promise<void> {
 let gh: GitHub | null = null
 let ghFor = ''
 
+/** Shows "Syncing…" only while something is really downloaded or uploaded, not for every quiet check. */
+function setBusy() {
+  if (state.kind !== 'syncing') setState({ kind: 'syncing' })
+}
+
 async function syncOnce() {
   const cfg = loadConfig()
   if (!cfg) return setState({ kind: 'off' })
   if (!navigator.onLine) return setState({ kind: 'offline' })
+  if (Date.now() < blockedUntil) return // the message is showing; a timer resumes
   const key = JSON.stringify(cfg)
   if (!gh || ghFor !== key) {
     gh = new GitHub(cfg)
     ghFor = key
   }
-  setState({ kind: 'syncing' })
+  const flush = flushRequested
+  flushRequested = false
   try {
     await workspaceReady
     for (let attempt = 0; attempt < 4; attempt++) {
-      if (await syncRound(gh)) {
+      if (await syncRound(gh, flush)) {
         // once per app start, after taking in the other devices' changes:
         // find anything an earlier, interrupted sync did not upload
         if (!checkedEverything) {
@@ -196,20 +240,47 @@ async function syncOnce() {
     throw new Error('Another device kept syncing at the same moment; will retry.')
   } catch (e) {
     console.warn('sync failed', e)
-    if (!navigator.onLine || e instanceof TypeError) setState({ kind: 'offline' })
+    if (e instanceof GitHubError && e.retryAt) {
+      blockedUntil = e.retryAt
+      syncLater(e.retryAt - Date.now())
+      const until = new Date(e.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      setState({ kind: 'error', message: `GitHub asked to pause until ${until}; sync continues by itself.` })
+    } else if (!navigator.onLine || e instanceof TypeError) setState({ kind: 'offline' })
     else setState({ kind: 'error', message: e instanceof GitHubError || e instanceof Error ? e.message : String(e) })
   }
 }
 
-const docDir = (docId: string) => (docId === WORKSPACE_DOC ? 'workspace' : `pages/${docId}`)
+const docDir = (docId: string) => V2 + (docId === WORKSPACE_DOC ? 'workspace' : `pages/${docId}`)
+/** The document a file belongs to, in the current (v2/) or the old layout. */
 function docIdOf(path: string): string | null {
-  if (path.startsWith('workspace/')) return WORKSPACE_DOC
-  const m = path.match(/^pages\/([^/]+)\//)
+  const p = path.startsWith(V2) ? path.slice(V2.length) : path
+  if (p.startsWith('workspace/')) return WORKSPACE_DOC
+  const m = p.match(/^pages\/([^/]+)\//)
   return m ? m[1] : null
 }
 
+/** The Yjs update stored in a file: .b64 files hold it as base64 text, others as raw bytes. */
+async function download(gh: GitHub, f: RemoteFile): Promise<Uint8Array> {
+  const bytes = await gh.getBlob(f.sha)
+  return f.path.endsWith('.b64') ? fromBase64(new TextDecoder().decode(bytes)) : bytes
+}
+
+/** Downloads files a few at a time; results in the same order. */
+async function downloadAll(gh: GitHub, files: RemoteFile[]): Promise<Uint8Array[]> {
+  const out: Uint8Array[] = new Array(files.length)
+  let next = 0
+  const worker = async () => {
+    while (next < files.length) {
+      const i = next++
+      out[i] = await download(gh, files[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PARALLEL_DOWNLOADS, files.length) }, worker))
+  return out
+}
+
 /** Returns false if another device pushed in the meantime (caller retries). */
-async function syncRound(gh: GitHub): Promise<boolean> {
+async function syncRound(gh: GitHub, flush: boolean): Promise<boolean> {
   const shadows: Shadow[] = []
   const openShadow = async (docId: string) => {
     const s = await openShadowDoc(docId)
@@ -217,22 +288,30 @@ async function syncRound(gh: GitHub): Promise<boolean> {
     return s
   }
   try {
-    return await syncRoundInner(gh, openShadow)
+    return await syncRoundInner(gh, openShadow, flush)
   } finally {
     for (const s of shadows) await s.close()
   }
 }
 
-async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise<Shadow>): Promise<boolean> {
+async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise<Shadow>, flush: boolean): Promise<boolean> {
   const head = await gh.head()
   const lastHead = await get<string>('head', meta)
   const applied = new Set<string>((await get<string[]>('applied', meta)) ?? [])
+  // the tree of `head`, if known: saves a request when committing. Only ever
+  // used for exactly that commit; a tree of another commit would drop files.
+  const known = await get<{ head: string; tree: string }>('tree', meta)
+  let baseTree = known?.head === head ? known.tree : undefined
   let files: RemoteFile[]
   if (head === lastHead) files = (await get<RemoteFile[]>('files', meta)) ?? []
-  else files = await gh.listFiles(head)
+  else {
+    const listed = await gh.listFiles(head)
+    files = listed.files
+    baseTree = listed.tree
+  }
 
   debug('round', { head, lastHead, files: files.map((f) => f.path), dirty: dirtyDocs() })
-  // ----- 1. take in what other devices uploaded (page list first) -----
+  // ----- 1. take in what other devices uploaded: page list first, then pages -----
   const byDoc = new Map<string, RemoteFile[]>()
   for (const f of files) {
     const id = docIdOf(f.path)
@@ -240,29 +319,72 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
     if (!byDoc.has(id)) byDoc.set(id, [])
     byDoc.get(id)!.push(f)
   }
-  const fresh = [...byDoc.entries()]
-    .map(([id, fs]) => [id, fs.filter((f) => !applied.has(f.path))] as const)
-    .filter(([, fs]) => fs.length)
-    .sort(([a], [b]) => (a === WORKSPACE_DOC ? -1 : b === WORKSPACE_DOC ? 1 : 0))
-  for (const [docId, newFiles] of fresh) {
-    // a page that was deleted (no longer listed): skip it, it gets cleaned up below
-    if (docId !== WORKSPACE_DOC && !pagesMap.has(docId)) continue
+  const freshOf = (docId: string) => (byDoc.get(docId) ?? []).filter((f) => !applied.has(f.path))
+  const applyFiles = async (docId: string, newFiles: RemoteFile[], updates: Uint8Array[]) => {
     const doc = await loadDoc(docId)
     const shadow = await openShadow(docId)
     debug('apply', docId, newFiles.map((f) => f.path))
-    for (const f of newFiles) {
-      const update = await gh.getBlob(f.sha)
-      Y.applyUpdate(doc, update, REMOTE)
-      Y.applyUpdate(shadow.doc, update, REMOTE)
+    newFiles.forEach((f, i) => {
+      Y.applyUpdate(doc, updates[i], REMOTE)
+      Y.applyUpdate(shadow.doc, updates[i], REMOTE)
       applied.add(f.path)
+    })
+  }
+  const freshWorkspace = freshOf(WORKSPACE_DOC)
+  if (freshWorkspace.length) {
+    setBusy()
+    await applyFiles(WORKSPACE_DOC, freshWorkspace, await downloadAll(gh, freshWorkspace))
+  }
+  // pages: only those still in the page list (which may have just changed);
+  // files of deleted pages are cleaned up below
+  const freshPages = [...byDoc.keys()]
+    .filter((id) => id !== WORKSPACE_DOC && pagesMap.has(id))
+    .map((id) => [id, freshOf(id)] as const)
+    .filter(([, fs]) => fs.length)
+  if (freshPages.length) {
+    setBusy()
+    const all = freshPages.flatMap(([, fs]) => fs)
+    const updates = await downloadAll(gh, all)
+    let i = 0
+    for (const [docId, fs] of freshPages) {
+      await applyFiles(docId, fs, updates.slice(i, i + fs.length))
+      i += fs.length
     }
   }
 
+  const quiet = head === lastHead && !freshWorkspace.length && !freshPages.length
+
   // ----- 2. upload what this device has that GitHub does not -----
-  const add: { path: string; data: Uint8Array }[] = []
+  // any commit costs at least 3 writes: if even that is over budget, don't
+  // prepare an upload now (the changes stay marked); try again when possible
+  const minWait = writeBudget.waitFor(3, flush)
+  if (minWait > 0 && (dirtyDocs().length || pendingImages().length)) {
+    debug('write budget: upload in', minWait, 'ms')
+    syncLater(minWait)
+    if (!quiet) await saveRound(head, files, applied, baseTree)
+    return true
+  }
+  const add: NewFile[] = []
   const remove: string[] = []
-  const afterCommit: (() => Promise<void>)[] = []
+  const afterCommit: (() => Promise<void> | void)[] = []
   const stamp = `${Date.now().toString(36)}-${deviceId}`
+  let inlineSize = 0
+  let blobs = 0
+  /** some changes did not fit in this commit: another round follows right away */
+  let more = false
+  /** a file for this commit: inside the tree request if small enough, else a blob; null if neither fits */
+  const pack = (docId: string, kind: 'u' | 's', update: Uint8Array): NewFile | null => {
+    const text = toBase64(update)
+    if (text.length <= MAX_INLINE_FILE && inlineSize + text.length <= MAX_INLINE_TOTAL) {
+      inlineSize += text.length
+      return { path: `${docDir(docId)}/${kind}-${stamp}.b64`, text }
+    }
+    if (blobs < MAX_BLOBS_PER_COMMIT) {
+      blobs++
+      return { path: `${docDir(docId)}/${kind}-${stamp}.bin`, data: update }
+    }
+    return null
+  }
 
   const toCheck = new Set(dirtyDocs())
   for (const [docId, fs] of byDoc) if (fs.length >= COMPACT_AT) toCheck.add(docId)
@@ -273,10 +395,9 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
       clearDirty(docId)
       continue
     }
-    // the mark is only removed once the upload is committed, and only if the
-    // document was not edited again meanwhile (see afterCommit below)
+    // the mark is removed only once the upload is committed, and only if the
+    // document was not edited again meanwhile
     const version = editVersion(docId)
-    afterCommit.push(async () => clearDirty(docId, version))
     const doc = await loadDoc(docId)
     const shadow = await openShadow(docId)
     const remoteFiles = byDoc.get(docId) ?? []
@@ -284,33 +405,45 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
     const hasChanges = hasSomethingNew(shadow.doc, diff)
     debug('check', docId, { diffBytes: diff.length, remoteFiles: remoteFiles.length })
     if (remoteFiles.length + (hasChanges ? 1 : 0) >= COMPACT_AT) {
-      // merge everything into one snapshot and drop the small files
+      // merge everything into one snapshot and drop the small files (old and new layout)
       const full = Y.encodeStateAsUpdate(doc)
-      const path = `${docDir(docId)}/s-${stamp}.bin`
-      add.push({ path, data: full })
+      const file = pack(docId, 's', full)
+      if (!file) {
+        more = true // stays marked; goes in the next commit
+        continue
+      }
+      add.push(file)
       remove.push(...remoteFiles.map((f) => f.path))
-      afterCommit.push(async () => {
+      afterCommit.push(() => {
         Y.applyUpdate(shadow.doc, full, REMOTE)
-        applied.add(path)
+        applied.add(file.path)
+        clearDirty(docId, version)
       })
     } else if (hasChanges) {
-      const path = `${docDir(docId)}/u-${stamp}.bin`
-      add.push({ path, data: diff })
-      afterCommit.push(async () => {
+      const file = pack(docId, 'u', diff)
+      if (!file) {
+        more = true
+        continue
+      }
+      add.push(file)
+      afterCommit.push(() => {
         Y.applyUpdate(shadow.doc, diff, REMOTE)
-        applied.add(path)
+        applied.add(file.path)
+        clearDirty(docId, version)
       })
+    } else {
+      afterCommit.push(() => clearDirty(docId, version))
     }
   }
 
-  // pages deleted on any device: remove their folders from GitHub
+  // pages deleted on any device: remove their files from GitHub
   for (const [docId, fs] of byDoc) {
     if (docId !== WORKSPACE_DOC && !pagesMap.has(docId) && workspaceKnown(applied, files)) {
       remove.push(...fs.map((f) => f.path))
     }
   }
 
-  // pictures added on this device
+  // pictures added on this device (always blobs: they are binary and may be large)
   const remotePaths = new Set(files.map((f) => f.path))
   for (const id of pendingImages()) {
     const path = `images/${id}`
@@ -323,37 +456,64 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
       clearPendingImage(id)
       continue
     }
+    if (blobs >= MAX_BLOBS_PER_COMMIT) {
+      more = true
+      break
+    }
+    blobs++
     add.push({ path, data: new Uint8Array(await blob.arrayBuffer()) })
-    afterCommit.push(async () => clearPendingImage(id))
+    afterCommit.push(() => clearPendingImage(id))
   }
 
   let newHead = head
+  let newTree = baseTree
   if (add.length || remove.length) {
+    const writes = GitHub.writesFor(add)
+    const wait = writeBudget.waitFor(writes, flush)
+    if (wait > 0) {
+      // over the write budget: upload later. Nothing is marked as uploaded,
+      // so the marks and shadows stay exactly as they are.
+      debug('write budget: upload in', wait, 'ms')
+      syncLater(wait)
+      await saveRound(head, files, applied, baseTree)
+      return true
+    }
+    setBusy()
+    writeBudget.spend(writes)
     const msg = `Sync from ${deviceLabel()} (${add.length} added${remove.length ? `, ${remove.length} merged/removed` : ''})`
-    const committed = await gh.commit(head, msg, add, [...new Set(remove)])
+    const committed = await gh.commit(head, msg, add, [...new Set(remove)], baseTree)
     if (!committed) {
       // someone else pushed first: start over (our documents are still marked)
       await set('applied', [...applied], meta)
       return false
     }
     for (const fn of afterCommit) await fn()
-    newHead = committed
+    newHead = committed.commit
+    newTree = committed.tree
     const removed = new Set(remove)
     files = [...files.filter((f) => !removed.has(f.path)), ...add.map((a) => ({ path: a.path, sha: '' }))]
     for (const p of removed) applied.delete(p)
   } else {
     for (const fn of afterCommit) await fn()
+    // nothing new either way: what is stored is still right
+    if (quiet && (baseTree === undefined || known?.head === head)) return true
   }
 
-  await set('head', newHead, meta)
+  await saveRound(newHead, files, applied, newTree)
+  if (more) again = true
+  return true
+}
+
+async function saveRound(head: string, files: RemoteFile[], applied: Set<string>, tree: string | undefined) {
+  await set('head', head, meta)
   await set('files', files, meta)
   await set('applied', [...applied], meta)
-  return true
+  await set('tree', tree ? { head, tree } : undefined, meta)
 }
 
 /** Only clean up deleted pages once this device has taken in every page-list file. */
 function workspaceKnown(applied: Set<string>, files: RemoteFile[]) {
-  return files.filter((f) => f.path.startsWith('workspace/')).every((f) => applied.has(f.path))
+  return files.filter((f) => docIdOf(f.path) === WORKSPACE_DOC).every((f) => applied.has(f.path))
 }
 
 /**
