@@ -14,7 +14,8 @@ import type { ExportRequest } from './export/plan'
 const MarkdownPage = lazy(() => import('./markdown/MarkdownPage'))
 import SyncSettings from './components/SyncSettings'
 import { getSyncState, onSyncState, type SyncState } from './sync/sync'
-import { notebooksMap, pagesMap, renamePage, sectionsMap } from './store/workspace'
+import { notebooksMap, pagesMap, renamePage, sectionsMap, updatePage } from './store/workspace'
+import { paperOf, rememberPaper } from './paper'
 
 const DEFAULT_INK: InkSettings = {
   penColor: PEN_COLORS[0],
@@ -260,6 +261,11 @@ export default function App() {
                     onInk={(patch) => setInk((s) => ({ ...s, ...patch }))}
                     api={api}
                     zoom={zoom}
+                    paper={paperOf(current.paper)}
+                    onPaper={(paper) => {
+                      rememberPaper(paper)
+                      updatePage(current.id, { paper })
+                    }}
                     selectionCount={canvasCtx.selectionCount}
                     textActive={canvasCtx.textActive}
                     showFingerToggle={hasTouch() && penDetected}
@@ -267,6 +273,7 @@ export default function App() {
                   <Canvas
                     key={current.id}
                     pageId={current.id}
+                    paper={paperOf(current.paper)}
                     tool={tool}
                     ink={ink}
                     apiRef={api}

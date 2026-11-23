@@ -27,8 +27,8 @@ export default defineConfig({
       workbox: { globPatterns: ['**/*.{js,css,html,png,svg,woff2}'] },
       includeAssets: ['icons/*.png', 'icons/*.svg'],
       manifest: {
-        name: 'InkPad',
-        short_name: 'InkPad',
+        name: 'Notes',
+        short_name: 'Notes',
         description: 'Notes with typing, Apple Pencil ink and images',
         display: 'standalone',
         start_url: '.',

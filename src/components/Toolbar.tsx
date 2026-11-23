@@ -3,6 +3,8 @@ import type { Tool } from '../store/types'
 import type { CanvasApi, InkSettings } from '../canvas/Canvas'
 import { Icons } from './icons'
 import { INK, inkColor } from '../theme'
+import type { Paper } from '../paper'
+import PaperMenu from './PaperMenu'
 
 export const PEN_COLORS = [INK, '#2563eb', '#dc2626', '#16a34a', '#7c3aed', '#ea580c']
 export const HL_COLORS = ['#facc15', '#4ade80', '#38bdf8', '#f472b6', '#fb923c']
@@ -23,6 +25,8 @@ interface Props {
   onInk(patch: Partial<InkSettings>): void
   api: React.RefObject<CanvasApi | null>
   zoom: number
+  paper: Paper
+  onPaper(p: Paper): void
   selectionCount: number
   textActive: boolean
   showFingerToggle: boolean
@@ -36,7 +40,7 @@ const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: 'text', label: 'Text', key: 'T' },
 ]
 
-export default function Toolbar({ tool, onTool, ink, onInk, api, zoom, selectionCount, textActive, showFingerToggle }: Props) {
+export default function Toolbar({ tool, onTool, ink, onInk, api, zoom, paper, onPaper, selectionCount, textActive, showFingerToggle }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const isHl = tool === 'highlighter'
   const showInk = tool === 'pen' || isHl
@@ -132,6 +136,7 @@ export default function Toolbar({ tool, onTool, ink, onInk, api, zoom, selection
         <button className="tbtn" title="Paste (Ctrl/⌘+V)" aria-label="Paste" onClick={() => api.current?.pasteFromClipboard()}>
           {Icons.paste}
         </button>
+        <PaperMenu paper={paper} onChange={onPaper} />
         <input
           ref={fileRef}
           type="file"

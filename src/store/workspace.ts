@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { nanoid } from 'nanoid'
+import { lastPaper } from '../paper'
 import type { CanvasElement, FolderMeta, NotebookMeta, PageKind, PageMeta, SectionMeta } from './types'
 
 /** Transaction origin for user edits that should be undoable. */
@@ -96,6 +97,7 @@ export function createPage(
 ): PageMeta {
   const now = Date.now()
   const meta: PageMeta = { id, title, kind, created: now, updated: now, sectionId, parentId, order }
+  if (kind === 'canvas') meta.paper = lastPaper()
   pagesMap.set(meta.id, meta)
   return meta
 }

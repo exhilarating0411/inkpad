@@ -4,7 +4,8 @@
  * Handwriting pages: ink is drawn as vector paths (sharp at any zoom), pictures
  * are embedded, typed text is drawn as a high-resolution image (so Chinese and
  * any other script works without shipping a font). The PDF page is as big as
- * the page's content, never cut into sheets.
+ * the page's content, never cut into sheets. Its paper colour and pattern are
+ * drawn too (in the light shade).
  *
  * Documents (Markdown): laid out by the browser exactly like the preview
  * (formulas, tables, code), split into A4 pages between paragraphs and
@@ -21,6 +22,7 @@ import { pageDbNameOf, pagesMap, peekOpenPage } from '../store/workspace'
 import { getImageBlob, imageUrl } from '../store/images'
 import { strokeOptions, strokePathExplicit } from '../canvas/ink'
 import { INK } from '../theme'
+import { PATTERN_GAP, paperLight, paperOf } from '../paper'
 import { renderMarkdown } from '../markdown/render'
 import { exportPages, type ExportNode, type ExportRequest } from './plan'
 
@@ -43,8 +45,8 @@ const TEXT_COLOUR = '#22201c'
 export async function exportPdf(req: ExportRequest, onProgress: (p: Progress) => void, cancelled: () => boolean): Promise<Blob> {
   const pdf = await PDFDocument.create()
   pdf.setTitle(req.title, { showInWindowTitleBar: true })
-  pdf.setCreator('InkPad')
-  pdf.setProducer('InkPad')
+  pdf.setCreator('Notes')
+  pdf.setProducer('Notes')
 
   const ids = exportPages(req).filter((id) => pagesMap.has(id))
   const firstPdfPage = new Map<string, number>()
@@ -221,10 +223,11 @@ async function addCanvas(pdf: PDFDocument, meta: PageMeta, elements: CanvasEleme
   const height = Math.min(MAX_SIDE, Math.max(A4.h, contentH * k + 2 * MARGIN + head))
 
   const page = pdf.addPage([width, height])
-  await drawTitle(pdf, page, meta.title)
   const top = height - MARGIN - head
   const px = (x: number) => MARGIN + (x - x0) * k
   const py = (y: number) => top - (y - y0) * k
+  drawPaper(page, meta, (X) => x0 + (X - MARGIN) / k, (Y) => y0 + (top - Y) / k, k)
+  await drawTitle(pdf, page, meta.title)
 
   // pictures, then typed text, then ink: the same layers as on screen
   for (const im of images) {
@@ -253,6 +256,34 @@ async function addCanvas(pdf: PDFDocument, meta: PageMeta, elements: CanvasEleme
       opacity: s.highlighter ? 0.35 : 1,
     })
   }
+}
+
+/** Paper colour and pattern, lined up with the page the same way as on screen. */
+function drawPaper(page: PDFPage, meta: PageMeta, wx: (X: number) => number, wy: (Y: number) => number, k: number) {
+  const paper = paperOf(meta.paper)
+  const W = page.getWidth()
+  const H = page.getHeight()
+  if (paper.color !== 'white') page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: colour(paperLight(paper.color)) })
+  if (paper.pattern === 'plain') return
+  const gap = PATTERN_GAP[paper.pattern]
+  const ink = rgb(70 / 255, 60 / 255, 30 / 255)
+  // world coordinates of the page edges (world y grows downwards, PDF y upwards)
+  const left = wx(0), right = wx(W), top = wy(H), bottom = wy(0)
+  const from = (a: number, offset = 0) => Math.ceil((a - offset) / gap) * gap + offset
+  const X = (x: number) => (x - left) * k
+  const Y = (y: number) => H - (y - top) * k
+  if (paper.pattern === 'dots') {
+    const count = ((right - left) / gap) * ((bottom - top) / gap)
+    if (count > 40_000) return // too many dots for a PDF viewer to draw quickly
+    for (let y = from(top, gap / 2); y <= bottom; y += gap)
+      for (let x = from(left, gap / 2); x <= right; x += gap)
+        page.drawCircle({ x: X(x), y: Y(y), size: 1.2 * k, color: ink, opacity: 0.22 })
+    return
+  }
+  const line = { thickness: k, color: ink, opacity: 0.14 }
+  for (let y = from(top); y <= bottom; y += gap) page.drawLine({ start: { x: 0, y: Y(y) }, end: { x: W, y: Y(y) }, ...line })
+  if (paper.pattern === 'grid')
+    for (let x = from(left); x <= right; x += gap) page.drawLine({ start: { x: X(x), y: 0 }, end: { x: X(x), y: H }, ...line })
 }
 
 async function embedPicture(pdf: PDFDocument, imageId: string) {

@@ -107,8 +107,8 @@ export class GitHub {
         await this.req(`/contents/README.md`, {
           method: 'PUT',
           body: JSON.stringify({
-            message: 'Create InkPad notes repository',
-            content: btoa('# InkPad notes\n\nSynced data of the InkPad app. Do not edit by hand.\n'),
+            message: 'Create Notes repository',
+            content: btoa('# Notes\n\nSynced data of the Notes app. Do not edit by hand.\n'),
             branch: this.cfg.branch,
           }),
         })

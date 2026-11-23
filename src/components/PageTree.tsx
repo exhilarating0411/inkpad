@@ -205,7 +205,7 @@ export default function PageTree(props: Props) {
           <span>Version {versionLabel(APP_VERSION)}</span>
           {newer && (
             <span className="version-new">
-              Newer version online ({versionLabel(newer)}). Close InkPad completely and open it again to update.
+              Newer version online ({versionLabel(newer)}). Close Notes completely and open it again to update.
             </span>
           )}
         </div>

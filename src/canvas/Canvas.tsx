@@ -7,6 +7,7 @@ import { PREDICT_MS, computeBBox, strokeOptions, strokePath } from './ink'
 import { elementBounds, elementInRect, pointInRect, rectFromPoints, strokeHit, type Rect } from './geometry'
 import { ImageView, StrokePath, TextBox } from './ElementViews'
 import { inkColor } from '../theme'
+import { PATTERN_GAP, paperCss, patternImage, type Paper } from '../paper'
 
 export interface CanvasApi {
   undo(): void
@@ -39,6 +40,7 @@ export interface InkSettings {
 
 interface Props {
   pageId: string
+  paper: Paper
   tool: Tool
   ink: InkSettings
   apiRef: RefObject<CanvasApi | null>
@@ -873,7 +875,7 @@ export default function Canvas(props: Props) {
   const texts = elements.filter((e): e is TextElement => e.type === 'text')
   const strokes = elements.filter((e): e is StrokeElement => e.type === 'stroke')
   const textEditable = tool === 'select' || tool === 'text'
-  const dot = 24 * vp.scale
+  const gap = PATTERN_GAP[props.paper.pattern] * vp.scale
   const single = selection.size === 1 ? elements.find((e) => selection.has(e.id)) : undefined
 
   return (
@@ -882,9 +884,11 @@ export default function Canvas(props: Props) {
       ref={rootRef}
       className={`canvas tool-${tool}`}
       style={{
-        backgroundSize: `${dot}px ${dot}px`,
+        backgroundColor: paperCss(props.paper.color),
+        backgroundSize: `${gap}px ${gap}px`,
         backgroundPosition: `${vp.x}px ${vp.y}px`,
-        backgroundImage: vp.scale < 0.35 ? 'none' : undefined,
+        // the pattern gets too dense to be useful when zoomed far out
+        backgroundImage: gap < 8 ? 'none' : patternImage(props.paper.pattern),
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

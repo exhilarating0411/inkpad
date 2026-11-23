@@ -1,4 +1,4 @@
-# InkPad
+# Notes
 
 A small OneNote-style notes app that runs in the browser and installs as an app on Windows, Mac, iPad and iPhone.
 
@@ -13,6 +13,7 @@ A small OneNote-style notes app that runs in the browser and installs as an app 
   The paste button opens a "Paste here" box when the browser can't read the clipboard directly (e.g. Safari over plain http): tap it and choose Paste.
 - Select tool: click, or drag a rectangle to select. Move, delete, or resize with the round handle.
 - Undo and redo, multiple pages, and everything is saved on the device (IndexedDB), so it works offline
+- **Paper**: the page button in the toolbar sets each handwriting page's colour (white, cream, yellow, green, blue, purple, pink, gray) and pattern (plain, dots, grid or lines). New pages use the paper picked last. PDF export keeps it.
 - **Light / Dark / Auto** theme (the ◐ button, top right). Black ink and text turn white on dark paper; printing is always light.
 - The **version** (build time · commit) is shown at the bottom of the page list. When a newer version is online it says so; close the app completely and open it again to update (on iPad, twice).
 

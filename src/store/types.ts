@@ -1,3 +1,5 @@
+import type { Paper } from '../paper'
+
 export type Tool = 'select' | 'pen' | 'highlighter' | 'eraser' | 'text'
 
 /** canvas = free handwriting page, markdown = written document */
@@ -15,6 +17,8 @@ export interface PageMeta {
   parentId?: string | null
   /** position among its siblings (smaller = higher); missing = created time */
   order?: number
+  /** background of a handwriting page; missing = white with dots */
+  paper?: Paper
   /** folder from the old layout; only read once, when the workspace is converted */
   folderId?: string | null
 }

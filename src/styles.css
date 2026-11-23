@@ -23,6 +23,17 @@
   --md-link: #2563eb;
   --md-code: #b4235a;
   --md-quote: #5d584f;
+  /* paper colours of handwriting pages (see paper.ts) */
+  --paper-white: #fffefb;
+  --paper-cream: #fdf6e1;
+  --paper-yellow: #fff5b8;
+  --paper-green: #e9f5e6;
+  --paper-blue: #e7f1fb;
+  --paper-purple: #f1ebfb;
+  --paper-pink: #fcebef;
+  --paper-gray: #efefec;
+  --pattern-dot: rgb(70 60 30 / 0.22);
+  --pattern-line: rgb(70 60 30 / 0.14);
 }
 
 :root[data-theme='dark'] {
@@ -48,6 +59,16 @@
   --md-link: #7fa8ff;
   --md-code: #f19ac0;
   --md-quote: #a9a497;
+  --paper-white: #1c1c1f;
+  --paper-cream: #24221b;
+  --paper-yellow: #2a2716;
+  --paper-green: #19231b;
+  --paper-blue: #18202a;
+  --paper-purple: #211d2b;
+  --paper-pink: #2a1c21;
+  --paper-gray: #252528;
+  --pattern-dot: rgb(255 255 255 / 0.14);
+  --pattern-line: rgb(255 255 255 / 0.09);
 }
 
 /* printing always uses light colours */
@@ -64,6 +85,16 @@
     --md-link: #2563eb;
     --md-code: #b4235a;
     --md-quote: #555;
+    --paper-white: #fffefb;
+    --paper-cream: #fdf6e1;
+    --paper-yellow: #fff5b8;
+    --paper-green: #e9f5e6;
+    --paper-blue: #e7f1fb;
+    --paper-purple: #f1ebfb;
+    --paper-pink: #fcebef;
+    --paper-gray: #efefec;
+    --pattern-dot: rgb(70 60 30 / 0.22);
+    --pattern-line: rgb(70 60 30 / 0.14);
   }
 }
 
@@ -895,6 +926,80 @@ p.sync-ok {
   align-self: center;
   font-size: 14px;
   color: var(--muted);
+}
+
+/* ---------- paper menu ---------- */
+
+.paper-icon {
+  display: block;
+  width: 18px;
+  height: 22px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.paper-menu {
+  position: fixed;
+  z-index: 25;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+}
+
+.paper-title {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.paper-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.paper-color {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.paper-color.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.paper-patterns {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.paper-pattern {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 2px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.paper-pattern:hover,
+.paper-pattern.active {
+  background: var(--accent-soft);
+}
+
+.paper-sample {
+  width: 40px;
+  height: 48px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 
 /* ---------- theme menu ---------- */

@@ -6,7 +6,7 @@ import { Icons } from './icons'
 
 type State = { kind: 'working'; progress: Progress | null } | { kind: 'done'; file: File } | { kind: 'error'; message: string }
 
-const fileName = (title: string) => `${(title.trim() || 'InkPad').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80)}.pdf`
+const fileName = (title: string) => `${(title.trim() || 'Notes').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80)}.pdf`
 
 /**
  * Builds the PDF, then offers it. The download (or share sheet) starts from a
