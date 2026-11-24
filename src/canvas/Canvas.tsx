@@ -20,7 +20,7 @@ import {
   type Rect,
   type Scale,
 } from './geometry'
-import { ImageView, StrokePath, TextBox } from './ElementViews'
+import { ImageView, StrokePath, TextBox, openLink } from './ElementViews'
 import { inkColor } from '../theme'
 import { PATTERN_GAP, paperCss, patternImage, type Paper } from '../paper'
 import { clipFromHtml, cloneElements, copyElements, lastClip, type Clip } from './clipboard'
@@ -284,6 +284,16 @@ export default function Canvas(props: Props) {
   const toScreen = (e: { clientX: number; clientY: number }) => {
     const r = rootRef.current!.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
+  }
+  const rootRect = () => rootRef.current!.getBoundingClientRect()
+  /** The link in a text box under this point of the window (with `pad` px of slack for fingers), if any. */
+  const linkAtPoint = (clientX: number, clientY: number, pad = 0): string | null => {
+    for (const a of rootRef.current!.querySelectorAll<HTMLAnchorElement>('.tb-links a')) {
+      for (const r of a.getClientRects()) {
+        if (clientX >= r.left - pad && clientX <= r.right + pad && clientY >= r.top - pad && clientY <= r.bottom + pad) return a.href
+      }
+    }
+    return null
   }
   const toWorld = (sx: number, sy: number) => {
     const v = vpRef.current
@@ -598,6 +608,15 @@ export default function Canvas(props: Props) {
   // ---------- pointer input ----------
   const onPointerDown = (e: React.PointerEvent) => {
     const target = e.target as HTMLElement
+    // Ctrl/⌘-click on a link in a text box opens it, whatever the tool
+    if ((e.ctrlKey || e.metaKey) && e.pointerType !== 'touch') {
+      const href = linkAtPoint(e.clientX, e.clientY)
+      if (href) {
+        e.preventDefault()
+        openLink(href)
+        return
+      }
+    }
     const editingText = target.closest('[data-textedit]') && (tool === 'select' || tool === 'text')
     if (editingText) return // let the textarea handle it
     if (target.closest('.sel-actions')) return // copy / cut / … buttons above the selection
@@ -935,6 +954,9 @@ export default function Canvas(props: Props) {
       }
       case 'pan':
         if (!g.moved && !cancelled) {
+          // a finger tap on a link opens it
+          const href = g.tap && linkAtPoint(g.startX + rootRect().left, g.startY + rootRect().top, 6)
+          if (href) return openLink(href)
           if (g.tap === 'eraser-toggle') onFingerTap(g.startX, g.startY)
           if (g.tap === 'clear') setSelection(new Set())
           if (g.tap === 'text') {

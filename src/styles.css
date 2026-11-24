@@ -375,6 +375,51 @@ button {
   pointer-events: auto;
 }
 
+/* Text with web addresses: this layer, on top of the text box and laid out
+   exactly like it, shows the text with the addresses as links. Taps go
+   through to the text box; the canvas opens a link on Ctrl/⌘-click or a
+   finger tap (see linkAt in Canvas.tsx). */
+.tb-body {
+  position: relative;
+}
+
+.tb-links {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid transparent;
+  padding: 4px 6px;
+  font-family: inherit;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+
+.tb-links a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* shown while the cursor is in a link */
+.tb-open {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 4px;
+  padding: calc(4px * var(--inv, 1)) calc(10px * var(--inv, 1));
+  border: 1px solid var(--accent-line);
+  border-radius: calc(6px * var(--inv, 1));
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: calc(13px * var(--inv, 1));
+  white-space: nowrap;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
 .el-text textarea::placeholder {
   color: var(--placeholder);
 }
@@ -989,6 +1034,23 @@ p.sync-ok {
   align-self: center;
   font-size: 14px;
   color: var(--muted);
+}
+
+.link-btn.inline {
+  padding: 0;
+  font-size: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.storage-line {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.storage-warn {
+  color: var(--text);
 }
 
 /* ---------- paper menu ---------- */

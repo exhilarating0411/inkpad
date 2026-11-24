@@ -59,6 +59,52 @@ export const ImageView = memo(function ImageView(props: {
 
 // ---------- text boxes ----------
 
+export interface LinkPart {
+  text: string
+  /** set for a web address: where it leads */
+  href?: string
+}
+
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"'，。、；：！？「」『』（）【】]+/gi
+
+/** Splits text into plain parts and web addresses (http://…, https://…, www.…). */
+export function linkParts(text: string): LinkPart[] {
+  const out: LinkPart[] = []
+  let last = 0
+  for (const m of text.matchAll(URL_RE)) {
+    let url = m[0]
+    // punctuation right after an address belongs to the sentence, not the address
+    for (;;) {
+      const trimmed = url.replace(/[.,;:!?'"\]}>]+$/, '')
+      // a closing bracket stays if the address opened one (e.g. Wikipedia links)
+      const t2 = trimmed.endsWith(')') && (trimmed.match(/\(/g)?.length ?? 0) < (trimmed.match(/\)/g)?.length ?? 0) ? trimmed.slice(0, -1) : trimmed
+      if (t2 === url) break
+      url = t2
+    }
+    if (!url.includes('.') || /^www\.$/i.test(url)) continue
+    const start = m.index
+    if (start > last) out.push({ text: text.slice(last, start) })
+    out.push({ text: url, href: /^www\./i.test(url) ? `https://${url}` : url })
+    last = start + url.length
+  }
+  if (last < text.length) out.push({ text: text.slice(last) })
+  return out
+}
+
+/** The web address the text position `pos` is in, if any. */
+function linkAt(parts: LinkPart[], pos: number): string | null {
+  let i = 0
+  for (const p of parts) {
+    if (p.href && pos >= i && pos <= i + p.text.length) return p.href
+    i += p.text.length
+  }
+  return null
+}
+
+export function openLink(href: string) {
+  window.open(href, '_blank', 'noopener,noreferrer')
+}
+
 export const TextBox = memo(function TextBox(props: {
   el: TextElement
   ox: number
@@ -77,6 +123,19 @@ export const TextBox = memo(function TextBox(props: {
   const ref = useRef<HTMLTextAreaElement>(null)
   const [text, setText] = useState(el.text)
   const focused = useRef(false)
+  const parts = useMemo(() => linkParts(text), [text])
+  const hasLinks = parts.some((p) => p.href)
+  /** the address the cursor is in while typing: offered as a button to open it */
+  const [caretLink, setCaretLink] = useState<string | null>(null)
+  const blurTimer = useRef(0)
+  const updateCaretLink = () => {
+    const ta = ref.current
+    if (!ta || !focused.current || !hasLinks) return setCaretLink(null)
+    setCaretLink(linkAt(parts, ta.selectionStart) ?? (ta.selectionEnd !== ta.selectionStart ? linkAt(parts, ta.selectionEnd) : null))
+  }
+  useEffect(updateCaretLink, [parts])
+  useEffect(() => () => clearTimeout(blurTimer.current), [])
+  const color = el.color ? inkColor(el.color) : undefined
 
   // Take changes from elsewhere (undo, another device) unless the user is typing here.
   useEffect(() => {
@@ -96,7 +155,7 @@ export const TextBox = memo(function TextBox(props: {
 
   return (
     <div
-      className={'el-text' + (editable ? ' editable' : '')}
+      className={'el-text' + (editable ? ' editable' : '') + (hasLinks ? ' has-links' : '')}
       data-id={el.id}
       style={{
         left: el.x + ox,
@@ -106,26 +165,63 @@ export const TextBox = memo(function TextBox(props: {
       }}
     >
       <div className="tb-handle" data-handle="move" data-id={el.id} title="Drag to move" />
-      <textarea
-        ref={ref}
-        data-textedit
-        value={text}
-        spellCheck
-        placeholder="Type here…"
-        style={{ fontSize: el.fontSize, color: el.color ? inkColor(el.color) : undefined }}
-        onFocus={() => {
-          focused.current = true
-          onFocus(el.id)
-        }}
-        onChange={(e) => {
-          setText(e.target.value)
-          onText(el.id, e.target.value)
-        }}
-        onBlur={(e) => {
-          focused.current = false
-          onBlur(el.id, e.target.value)
-        }}
-      />
+      {caretLink && (
+        <a
+          className="tb-open"
+          href={caretLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-textedit
+          // keep the cursor in the text box
+          onPointerDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          Open link ↗
+        </a>
+      )}
+      <div className="tb-body">
+        <textarea
+          ref={ref}
+          data-textedit
+          value={text}
+          spellCheck
+          placeholder="Type here…"
+          // with links the text is shown by the layer on top; the box keeps the cursor and selection
+          style={{ fontSize: el.fontSize, color: hasLinks ? 'transparent' : color, caretColor: color }}
+          onFocus={() => {
+            clearTimeout(blurTimer.current)
+            focused.current = true
+            onFocus(el.id)
+            updateCaretLink()
+          }}
+          onSelect={updateCaretLink}
+          onChange={(e) => {
+            setText(e.target.value)
+            onText(el.id, e.target.value)
+          }}
+          onBlur={(e) => {
+            focused.current = false
+            onBlur(el.id, e.target.value)
+            // a moment later, so a tap on "Open link" still lands
+            blurTimer.current = window.setTimeout(() => setCaretLink(null), 300)
+          }}
+        />
+        {hasLinks && (
+          <div className="tb-links" aria-hidden style={{ fontSize: el.fontSize, color }}>
+            {parts.map((p, i) =>
+              p.href ? (
+                <a key={i} href={p.href} tabIndex={-1}>
+                  {p.text}
+                </a>
+              ) : (
+                p.text
+              ),
+            )}
+            {/* a final line break still takes a line, as in the text box */}
+            {text.endsWith('\n') ? '​' : null}
+          </div>
+        )}
+      </div>
     </div>
   )
 })
