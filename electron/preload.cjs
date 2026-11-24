@@ -35,4 +35,12 @@ contextBridge.exposeInMainWorld('neatnotes', {
   openExternal: (url) => ipcRenderer.send('shell:open', url),
   revealNotesFolder: () => ipcRenderer.send('folder:reveal'),
   changeFolder: (syncOn) => ipcRenderer.invoke('folder:change', !!syncOn),
+  onUpdateReady: (fn) => {
+    const now = ipcRenderer.sendSync('update:get')
+    if (now) fn(now)
+    const listener = (_e, version) => fn(version)
+    ipcRenderer.on('update:ready', listener)
+    return () => ipcRenderer.removeListener('update:ready', listener)
+  },
+  installUpdate: () => ipcRenderer.invoke('update:install'),
 })

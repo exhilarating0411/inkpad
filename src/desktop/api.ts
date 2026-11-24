@@ -40,6 +40,10 @@ export interface DesktopApi {
    * them with / switches to notes already there. The page reloads when the folder changed.
    */
   changeFolder(syncOn: boolean): Promise<'move' | 'combine' | 'switch' | 'cancelled' | 'failed'>
+  /** a newer version was downloaded (called at once if one is waiting) */
+  onUpdateReady(fn: (version: string) => void): () => void
+  /** saves everything, restarts and installs the downloaded version */
+  installUpdate(): Promise<void>
 }
 
 export const desktop: DesktopApi | undefined = (window as unknown as { neatnotes?: DesktopApi }).neatnotes

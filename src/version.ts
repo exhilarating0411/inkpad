@@ -32,6 +32,13 @@ async function onlineVersion(): Promise<AppVersion | null> {
   }
 }
 
+/** Windows app: a newer version that was downloaded and is ready to install. */
+export function useDesktopUpdate(): string | null {
+  const [ready, setReady] = useState<string | null>(null)
+  useEffect(() => (desktop ? desktop.onUpdateReady(setReady) : undefined), [])
+  return ready
+}
+
 /** The newer version online, if there is one. Checked on start and whenever the app comes back to the screen. */
 export function useNewerVersion(): AppVersion | null {
   const [newer, setNewer] = useState<AppVersion | null>(null)

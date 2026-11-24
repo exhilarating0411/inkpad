@@ -1,0 +1,32 @@
+# Builds the NeatNotes Windows installer and publishes it as a GitHub release
+# when a version tag is pushed (e.g. `git tag v1.0.1 && git push origin v1.0.1`).
+# The installed app finds new releases here and updates itself.
+# The tag must match "version" in package.json.
+name: Release Windows app
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Tag and package.json agree
+        shell: bash
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then echo "Tag $GITHUB_REF_NAME but package.json says $v"; exit 1; fi
+      - run: npm ci
+      - run: npm run desktop:build
+      - run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

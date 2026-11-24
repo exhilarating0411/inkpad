@@ -188,6 +188,32 @@ function watchNotes(win) {
   }
 }
 
+// ---------- updates (installed app only), from the GitHub releases of the app ----------
+
+let updateReady = null // version downloaded and waiting to be installed
+function setupUpdates(win) {
+  if (!app.isPackaged) return
+  const { autoUpdater } = require('electron-updater')
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true // installed the next time NeatNotes is closed, if not before
+  autoUpdater.on('update-downloaded', (info) => {
+    updateReady = info.version
+    if (!win.isDestroyed()) win.webContents.send('update:ready', info.version)
+  })
+  autoUpdater.on('error', (e) => console.warn('NeatNotes: update check failed', e && e.message))
+  const check = () => autoUpdater.checkForUpdates().catch(() => {})
+  setTimeout(check, 10_000)
+  setInterval(check, 6 * 60 * 60 * 1000)
+  ipcMain.handle('update:install', async () => {
+    if (!updateReady) return
+    await flushPage(win)
+    autoUpdater.quitAndInstall()
+  })
+}
+ipcMain.on('update:get', (e) => {
+  e.returnValue = updateReady
+})
+
 // ---------- choosing the notes folder ----------
 
 /** NeatNotes' own content of a notes folder: everything in v2\, and pictures (files named by their id) in images\ */
@@ -472,6 +498,7 @@ function createWindow() {
   win.on('closed', () => watcher?.close())
 
   watchNotes(win)
+  setupUpdates(win)
   void win.loadURL(DEV ? DEV_URL : `${APP_ORIGIN}/index.html`)
   return win
 }

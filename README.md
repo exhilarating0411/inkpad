@@ -73,6 +73,25 @@ npm run dev      # http://localhost:5173 , also prints a Network address for oth
 npm run build    # production build in dist/
 ```
 
+## Windows app
+
+NeatNotes is also a Windows program that keeps the notes as **ordinary files in a folder you choose** instead of in the browser. It is the same app (same features, same GitHub sync), so the Windows program, the website and the iPad all stay in sync.
+
+- **Install**: download `NeatNotes-Setup-x.y.z.exe` from the [releases](https://github.com/exhilarating0411/inkpad/releases) and run it. It installs for your Windows user only (no administrator needed). Windows may warn about an unknown publisher (the app is not code-signed): choose *More info → Run anyway*.
+- **Notes folder**: on first start NeatNotes asks where to keep the notes (suggested: `Documents\NeatNotes`). To use notes you already have, choose their folder. Change it later in the sync settings (the line at the bottom of the page list) → *Change…*: to an empty folder the notes are moved; to a folder that already has NeatNotes notes you can combine both or use only those.
+- The folder has the same layout as the GitHub notes repository (`v2\…`, `images\…`). Every change is a new file and existing files are never changed, so the folder can be backed up at any time or kept in OneDrive: files that arrive from another computer appear in the open pages. This computer's own sync bookkeeping and the (encrypted) GitHub token stay in `%AppData%\NeatNotes`.
+- **Updates**: NeatNotes looks for a new version on start and every few hours, downloads it in the background and shows *Restart to update*; otherwise it is installed the next time NeatNotes is closed.
+
+For development:
+
+```bash
+npm run desktop        # build the page and run the app
+npm run desktop:dev    # run the app on the Vite dev server (start `npx vite --port 5199` first)
+npm run desktop:package  # make the installer in release/
+```
+
+(In VS Code's terminal run `set ELECTRON_RUN_AS_NODE=` first.) A new version is released by setting `version` in `package.json` and pushing a matching tag (`git tag v1.0.1 && git push origin v1.0.1`): GitHub Actions builds the installer and publishes the release, and installed apps update from it.
+
 ## Shortcuts
 
 | Key | Action |
@@ -90,3 +109,4 @@ npm run build    # production build in dist/
 1. ✅ Canvas, text, images, pen
 2. ✅ Markdown documents
 3. ✅ Sync between devices through a private GitHub repository, with the app hosted on GitHub Pages
+4. ✅ Windows app that keeps the notes in a folder of files

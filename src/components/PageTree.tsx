@@ -25,7 +25,8 @@ import type { SyncState } from '../sync/sync'
 import { describe, isPending, usePending } from './SyncSettings'
 import { ActionMenu, PickDialog, menuAt, useWorkspaceVersion, type OpenMenu, type PickItem } from './Menu'
 import { Icons } from './icons'
-import { APP_VERSION, useNewerVersion, versionLabel } from '../version'
+import { APP_VERSION, useDesktopUpdate, useNewerVersion, versionLabel } from '../version'
+import { desktop } from '../desktop/api'
 import type { ExportRequest } from '../export/plan'
 import { pageExport } from '../export/plan'
 
@@ -77,6 +78,7 @@ export default function PageTree(props: Props) {
   const [collapsed, setCollapsed, toggle] = useCollapsed()
   const pending = usePending()
   const newer = useNewerVersion()
+  const desktopUpdate = useDesktopUpdate()
 
   // the open page is always visible: its parents are expanded
   useEffect(() => {
@@ -206,6 +208,14 @@ export default function PageTree(props: Props) {
           {newer && (
             <span className="version-new">
               Newer version online ({versionLabel(newer)}). Close NeatNotes completely and open it again to update.
+            </span>
+          )}
+          {desktopUpdate && (
+            <span className="version-new">
+              Version {desktopUpdate} is ready.{' '}
+              <button type="button" className="link-btn inline" onClick={() => void desktop?.installUpdate()}>
+                Restart to update
+              </button>
             </span>
           )}
         </div>
