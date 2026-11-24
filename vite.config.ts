@@ -9,8 +9,11 @@ const version = { commit: (process.env.GITHUB_SHA ?? 'dev').slice(0, 7), built: 
 
 // base './' keeps every asset path relative, so the same build works on
 // GitHub Pages (https://user.github.io/repo/) and on a local server.
-export default defineConfig({
+// `--mode desktop` builds the page for the NeatNotes Windows app (electron/):
+// into dist-desktop, without the offline cache the website needs.
+export default defineConfig(({ mode }) => ({
   base: './',
+  build: mode === 'desktop' ? { outDir: 'dist-desktop' } : undefined,
   define: { __APP_VERSION__: JSON.stringify(version) },
   plugins: [
     react(),
@@ -22,6 +25,7 @@ export default defineConfig({
       },
     },
     VitePWA({
+      disable: mode === 'desktop',
       registerType: 'autoUpdate',
       // math fonts too, so formulas render offline
       workbox: { globPatterns: ['**/*.{js,css,html,png,svg,woff2}'] },
@@ -43,4 +47,4 @@ export default defineConfig({
       },
     }),
   ],
-})
+}))

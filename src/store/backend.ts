@@ -1,7 +1,7 @@
 /**
  * Where this device keeps its data. Everything that stores notes goes through
  * here, so the same app can keep them in the browser (web app, iPad) or in a
- * folder of files (NeatNotes for Windows).
+ * folder of files (NeatNotes for Windows, see folderBackend.ts).
  *
  * Three kinds of data:
  * - documents (Yjs): the page list, each page, and for sync the "shadow" copy
@@ -12,6 +12,8 @@
 import type * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { createStore, get, set } from 'idb-keyval'
+import { desktop } from '../desktop/api'
+import { folderBackend } from './folderBackend'
 
 /**
  * Keeps a Y.Doc stored: loads what is stored into it (as a transaction whose
@@ -40,6 +42,8 @@ export interface Backend {
     set(id: string, blob: Blob): Promise<void>
   }
   syncMeta: KeyValueStore
+  /** a stored document was changed from outside this app (files that arrived e.g. through OneDrive) */
+  onExternalChange?(fn: (name: DocName) => void): () => void
 }
 
 // ---------- in the browser (IndexedDB) ----------
@@ -61,4 +65,5 @@ function browserBackend(): Backend {
   }
 }
 
-export const backend: Backend = browserBackend()
+/** The Windows app keeps notes as files in a folder; the web app in the browser. */
+export const backend: Backend = desktop ? folderBackend(desktop) : browserBackend()

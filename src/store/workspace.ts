@@ -31,6 +31,8 @@ export function markDirty(docId: string) {
   saveDirty()
   changeListeners.forEach((fn) => fn())
 }
+// changes that arrived in the notes folder from elsewhere (Windows app, e.g. through OneDrive) go to GitHub too
+backend.onExternalChange?.((name) => markDirty(name === 'workspace' ? WORKSPACE_DOC : name.slice('page:'.length)))
 export const dirtyDocs = () => [...dirty]
 export const editVersion = (docId: string) => editCount.get(docId) ?? 0
 /**

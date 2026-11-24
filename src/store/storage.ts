@@ -13,6 +13,8 @@
  * the app is installed, and from the settings.
  */
 
+import { isDesktop } from '../desktop/api'
+
 export interface StorageStatus {
   /** null: this browser cannot tell */
   persisted: boolean | null
@@ -53,6 +55,7 @@ export function formatBytes(n: number): string {
 
 /** At start, and again once the app is installed (Chrome/Edge grant it to installed apps). */
 export function keepDataSafe() {
+  if (isDesktop) return // the Windows app keeps notes in a folder, not in browser storage
   void requestPersistence()
   window.addEventListener('appinstalled', () => void requestPersistence())
 }

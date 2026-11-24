@@ -54,6 +54,7 @@ import {
   withStoredPage,
 } from '../store/workspace'
 import { backend } from '../store/backend'
+import { desktop } from '../desktop/api'
 import { clearPendingImage, getImageBlob, pendingImages, setRemoteImageFetcher } from '../store/images'
 import { whenInkIdle } from '../store/activity'
 import { forgetPageText } from '../store/search'
@@ -96,27 +97,44 @@ const deviceId = (() => {
 
 // ---------- configuration ----------
 
+// In the Windows app the token is kept encrypted for the Windows user, not with the other settings.
+const TOKEN_SECRET = 'github-token'
+let desktopToken: string | null | undefined
+
 export function loadConfig(): SyncConfig | null {
   try {
     const c = JSON.parse(localStorage.getItem(CONFIG_KEY) ?? 'null')
+    if (c && desktop) {
+      if (desktopToken === undefined) desktopToken = desktop.secretGet(TOKEN_SECRET)
+      c.token = desktopToken ?? ''
+    }
     return c?.token && c?.owner && c?.repo ? c : null
   } catch {
     return null
   }
 }
 
+function saveConfig(c: SyncConfig | null) {
+  if (desktop) {
+    desktop.secretSet(TOKEN_SECRET, c?.token ?? null)
+    desktopToken = c?.token ?? null
+  }
+  if (!c) localStorage.removeItem(CONFIG_KEY)
+  else localStorage.setItem(CONFIG_KEY, JSON.stringify(desktop ? { ...c, token: undefined } : c))
+}
+
 /** Validates the settings against GitHub, saves them and starts syncing. */
 export async function connect(cfg: SyncConfig): Promise<void> {
   const clean: SyncConfig = { ...cfg, owner: cfg.owner.trim(), repo: cfg.repo.trim(), branch: cfg.branch.trim() || 'main', token: cfg.token.trim() }
   await new GitHub(clean).check()
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(clean))
+  saveConfig(clean)
   markEverythingDirty()
   start()
   void syncNow()
 }
 
 export function disconnect() {
-  localStorage.removeItem(CONFIG_KEY)
+  saveConfig(null)
   stop()
   setState({ kind: 'off' })
 }

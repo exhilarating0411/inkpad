@@ -24,7 +24,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # the website does not need the Windows app's Electron program
       - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

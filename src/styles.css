@@ -1053,6 +1053,11 @@ p.sync-ok {
   color: var(--text);
 }
 
+/* a folder path may be one long word */
+.storage-line b {
+  overflow-wrap: anywhere;
+}
+
 /* ---------- paper menu ---------- */
 
 .paper-icon {

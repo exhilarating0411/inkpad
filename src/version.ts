@@ -1,5 +1,6 @@
 /** Which build of the app is running, and whether a newer one is online. */
 import { useEffect, useState } from 'react'
+import { desktop, isDesktop } from './desktop/api'
 
 export interface AppVersion {
   /** short commit id, or "dev" for a build made on a computer */
@@ -14,11 +15,13 @@ export const APP_VERSION: AppVersion = __APP_VERSION__
 /** e.g. "Nov 23, 14:05 · 256e8ef", in the device's own time zone */
 export function versionLabel(v: AppVersion): string {
   const when = new Date(v.built).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-  return `${when} · ${v.commit}`
+  return `${desktop ? `${desktop.version} · ` : ''}${when} · ${v.commit}`
 }
 
 /** The version published on the website (null when offline, or when running the dev server). */
 async function onlineVersion(): Promise<AppVersion | null> {
+  // the Windows app updates itself from its own releases, not from the website
+  if (isDesktop) return null
   try {
     const res = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' })
     if (!res.ok) return null

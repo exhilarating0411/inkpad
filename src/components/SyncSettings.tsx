@@ -2,6 +2,7 @@ import { useEffect, useReducer, useState } from 'react'
 import { connect, disconnect, loadConfig, syncNow, type SyncState } from '../sync/sync'
 import { WORKSPACE_DOC, dirtyDocs, onDirtyChange, pagesMap } from '../store/workspace'
 import { formatBytes, requestPersistence, storageStatus, type StorageStatus } from '../store/storage'
+import { desktop } from '../desktop/api'
 
 export default function SyncSettings({ state, onClose }: { state: SyncState; onClose(): void }) {
   const saved = loadConfig()
@@ -103,6 +104,23 @@ export default function SyncSettings({ state, onClose }: { state: SyncState; onC
 
 /** How much this device stores, and whether the browser may clear it. */
 function DeviceStorage() {
+  if (desktop) return <NotesFolder />
+  return <BrowserStorage />
+}
+
+/** Windows app: where the notes folder is. */
+function NotesFolder() {
+  return (
+    <p className="storage-line">
+      Notes are saved in <b>{desktop!.notesFolder}</b>{' '}
+      <button type="button" className="link-btn inline" onClick={() => desktop!.revealNotesFolder()}>
+        Show in Explorer
+      </button>
+    </p>
+  )
+}
+
+function BrowserStorage() {
   const [status, setStatus] = useState<StorageStatus | null>(null)
   const [asked, setAsked] = useState(false)
   useEffect(() => {
