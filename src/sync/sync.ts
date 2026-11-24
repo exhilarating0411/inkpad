@@ -24,15 +24,21 @@
  * As a safety net, the first sync after the app starts compares every
  * document with its shadow and uploads anything GitHub does not have yet.
  *
- * Uploads stay within GitHub's limit on writes (see budget.ts); GitHub asking
- * to slow down is respected.
+ * Uploads stay within GitHub's limit on writes, downloads within its limit on
+ * requests (see budget.ts); GitHub asking to slow down is respected.
+ *
+ * Downloads go a batch at a time, each batch taken in and remembered before
+ * the next, so a large library (a new device) arrives bit by bit and an
+ * interruption loses at most one batch. Every round also uploads, and the
+ * page on screen and the most recently changed pages come first, so everyday
+ * changes are not held up behind a restore.
  */
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { createStore, get, set } from 'idb-keyval'
 import { nanoid } from 'nanoid'
 import { GitHub, GitHubError, fromBase64, toBase64, type NewFile, type RemoteFile, type SyncConfig } from './github'
-import { writeBudget } from './budget'
+import { READ_LIMITS, readBudget, writeBudget } from './budget'
 import {
   REMOTE,
   WORKSPACE_DOC,
@@ -51,11 +57,13 @@ import {
 } from '../store/workspace'
 import { clearPendingImage, getImageBlob, pendingImages, setRemoteImageFetcher } from '../store/images'
 import { whenInkIdle } from '../store/activity'
+import { forgetPageText } from '../store/search'
 
+/** `left`: pages whose contents are still being downloaded (a large library arriving on a new device) */
 export type SyncState =
   | { kind: 'off' }
-  | { kind: 'idle'; lastSync: number }
-  | { kind: 'syncing' }
+  | { kind: 'idle'; lastSync: number; left?: number }
+  | { kind: 'syncing'; left?: number }
   | { kind: 'offline' }
   | { kind: 'error'; message: string }
 
@@ -74,6 +82,8 @@ const MAX_INLINE_TOTAL = 3 * 1024 * 1024
 const MAX_BLOBS_PER_COMMIT = 10
 /** downloads running at the same time */
 const PARALLEL_DOWNLOADS = 6
+/** at most this many files are downloaded per round, so each round (which also uploads) stays short */
+const MAX_DOWNLOADS_PER_ROUND = 60
 /** new files go here; old ones (without the prefix) are still read */
 const V2 = 'v2/'
 
@@ -131,6 +141,7 @@ export function onSyncState(fn: (s: SyncState) => void) {
 let pollTimer = 0
 let editTimer = 0
 let laterTimer = 0
+let laterAt = 0
 let running: Promise<void> | null = null
 let again = false
 let stopEdits: (() => void) | null = null
@@ -149,7 +160,12 @@ export function start() {
     const c = loadConfig()
     return c ? new GitHub(c) : null
   }
-  setRemoteImageFetcher(async (id) => (await gh()?.getFile(`images/${id}`)) ?? null)
+  setRemoteImageFetcher(async (id) => {
+    const g = gh()
+    if (!g) return null
+    readBudget.spend(1)
+    return g.getFile(`images/${id}`)
+  })
   window.addEventListener('online', onOnline)
   document.addEventListener('visibilitychange', onVisibility)
   schedulePoll()
@@ -161,6 +177,7 @@ function stop() {
   clearTimeout(pollTimer)
   clearTimeout(editTimer)
   clearTimeout(laterTimer)
+  laterTimer = 0
   setRemoteImageFetcher(null)
   window.removeEventListener('online', onOnline)
   document.removeEventListener('visibilitychange', onVisibility)
@@ -181,10 +198,26 @@ function schedulePoll() {
   }, POLL_MS)
 }
 
-/** Syncs again after `ms` (the write budget or GitHub asked to wait). */
+/** Syncs again after `ms` (a budget or GitHub asked to wait, or more to download), or sooner if already planned. */
 function syncLater(ms: number) {
+  const at = Date.now() + Math.max(500, ms)
+  if (laterTimer && laterAt <= at) return
   clearTimeout(laterTimer)
-  laterTimer = window.setTimeout(() => void syncNow(), Math.max(500, ms))
+  laterAt = at
+  laterTimer = window.setTimeout(() => {
+    laterTimer = 0
+    void syncNow()
+  }, at - Date.now())
+}
+
+/** The page on screen: downloaded before any other, even if the read budget has to go into debt. */
+let shownPage = ''
+/** pages whose contents are still to be downloaded, after the last round */
+let waitingPages = new Set<string>()
+
+export function setShownPage(id: string | undefined) {
+  shownPage = id ?? ''
+  if (shownPage && waitingPages.has(shownPage)) void syncNow()
 }
 
 /** Runs one sync now (or right after the one in progress). */
@@ -209,14 +242,18 @@ let ghFor = ''
 
 /** Shows "Syncing…" only while something is really downloaded or uploaded, not for every quiet check. */
 function setBusy() {
-  if (state.kind !== 'syncing') setState({ kind: 'syncing' })
+  const left = waitingPages.size || undefined
+  if (state.kind !== 'syncing' || state.left !== left) setState({ kind: 'syncing', left })
 }
+
+/** set by a round that left files to download: when the next batch may go (ms from now) */
+let nextBatchIn: number | null = null
 
 async function syncOnce() {
   const cfg = loadConfig()
   if (!cfg) return setState({ kind: 'off' })
   if (!navigator.onLine) return setState({ kind: 'offline' })
-  if (Date.now() < blockedUntil) return // the message is showing; a timer resumes
+  if (Date.now() < blockedUntil) return syncLater(blockedUntil - Date.now()) // the message is showing
   const key = JSON.stringify(cfg)
   if (!gh || ghFor !== key) {
     gh = new GitHub(cfg)
@@ -229,6 +266,7 @@ async function syncOnce() {
   try {
     await workspaceReady
     for (let attempt = 0; attempt < 4; attempt++) {
+      nextBatchIn = null
       if (await syncRound(gh, flush)) {
         // once per app start, after taking in the other devices' changes:
         // find anything an earlier, interrupted sync did not upload
@@ -236,7 +274,10 @@ async function syncOnce() {
           checkedEverything = true
           if (await markUnuploaded()) again = true
         }
-        setState({ kind: 'idle', lastSync: Date.now() })
+        // more to download: next batch on a timer, so this sync ends and
+        // edits made meanwhile go up with the next round
+        if (nextBatchIn !== null) syncLater(nextBatchIn)
+        setState({ kind: 'idle', lastSync: Date.now(), left: waitingPages.size || undefined })
         return
       }
     }
@@ -268,8 +309,15 @@ async function download(gh: GitHub, f: RemoteFile): Promise<Uint8Array> {
   return f.path.endsWith('.b64') ? fromBase64(new TextDecoder().decode(bytes)) : bytes
 }
 
+/** When a file was uploaded (from its name: u-<time>-<device> or s-<time>-<device>); 0 if unknown. */
+function stampOf(path: string): number {
+  const m = path.match(/\/[us]-([0-9a-z]+)-[^/]*$/)
+  return m ? parseInt(m[1], 36) || 0 : 0
+}
+
 /** Downloads files a few at a time; results in the same order. */
 async function downloadAll(gh: GitHub, files: RemoteFile[]): Promise<Uint8Array[]> {
+  readBudget.spend(files.length)
   const out: Uint8Array[] = new Array(files.length)
   let next = 0
   const worker = async () => {
@@ -308,6 +356,7 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
   let files: RemoteFile[]
   if (head === lastHead) files = (await get<RemoteFile[]>('files', meta)) ?? []
   else {
+    readBudget.spend(2)
     const listed = await gh.listFiles(head)
     files = listed.files
     baseTree = listed.tree
@@ -325,38 +374,67 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
   const freshOf = (docId: string) => (byDoc.get(docId) ?? []).filter((f) => !applied.has(f.path))
   const applyFiles = async (docId: string, newFiles: RemoteFile[], updates: Uint8Array[]) => {
     await whenInkIdle(300, 5_000) // merging redraws the page: not in the middle of a line
-    const doc = await loadDoc(docId)
     const shadow = await openShadow(docId)
     debug('apply', docId, newFiles.map((f) => f.path))
+    await applyToLocal(docId, updates)
     newFiles.forEach((f, i) => {
-      Y.applyUpdate(doc, updates[i], REMOTE)
       Y.applyUpdate(shadow.doc, updates[i], REMOTE)
       applied.add(f.path)
     })
   }
+  // the page list always comes in whole (it is small: merged at COMPACT_AT files)
   const freshWorkspace = freshOf(WORKSPACE_DOC)
   if (freshWorkspace.length) {
     setBusy()
     await applyFiles(WORKSPACE_DOC, freshWorkspace, await downloadAll(gh, freshWorkspace))
+    await set('applied', [...applied], meta)
   }
   // pages: only those still in the page list (which may have just changed);
-  // files of deleted pages are cleaned up below
-  const freshPages = [...byDoc.keys()]
+  // files of deleted pages are cleaned up below.
+  // Page on screen first, then the most recently changed: a change just made
+  // on another device comes in with the next round even during a big restore.
+  const waiting = [...byDoc.keys()]
     .filter((id) => id !== WORKSPACE_DOC && pagesMap.has(id))
-    .map((id) => [id, freshOf(id)] as const)
-    .filter(([, fs]) => fs.length)
-  if (freshPages.length) {
-    setBusy()
-    const all = freshPages.flatMap(([, fs]) => fs)
-    const updates = await downloadAll(gh, all)
-    let i = 0
-    for (const [docId, fs] of freshPages) {
-      await applyFiles(docId, fs, updates.slice(i, i + fs.length))
-      i += fs.length
-    }
+    .map((id) => {
+      const fs = freshOf(id)
+      return { id, files: fs, newest: Math.max(0, ...fs.map((f) => stampOf(f.path))) }
+    })
+    .filter((p) => p.files.length)
+    .sort((a, b) => Number(b.id === shownPage) - Number(a.id === shownPage) || b.newest - a.newest)
+  // a batch of whole pages, as many as this round and the read budget allow
+  const batch: typeof waiting = []
+  let count = 0
+  for (const p of waiting) {
+    const n = p.files.length
+    if (batch.length === 0) {
+      // the first page goes if the budget has room for it (a page with more
+      // files than the budget can ever hold goes once the budget is full)
+      if (readBudget.available(p.id === shownPage) < Math.min(n, READ_LIMITS.capacity)) break
+    } else if (count + n > Math.min(MAX_DOWNLOADS_PER_ROUND, readBudget.available())) break
+    batch.push(p)
+    count += n
   }
+  if (batch.length) {
+    setBusy()
+    const updates = await downloadAll(gh, batch.flatMap((p) => p.files))
+    let i = 0
+    for (const p of batch) {
+      await applyFiles(p.id, p.files, updates.slice(i, i + p.files.length))
+      i += p.files.length
+    }
+    // remembered at once: an interruption later in this round does not undo it
+    await set('applied', [...applied], meta)
+  }
+  const rest = waiting.slice(batch.length)
+  waitingPages = new Set(rest.map((p) => p.id))
+  if (rest.length) {
+    nextBatchIn = batch.length ? 0 : readBudget.waitFor(Math.min(rest[0].files.length, READ_LIMITS.capacity), rest[0].id === shownPage)
+    debug('to download', { pages: rest.length, files: rest.reduce((s, p) => s + p.files.length, 0), nextBatchIn })
+  }
+  /** a page whose files are not all here yet: may get new changes uploaded, but must not be merged into a snapshot */
+  const incomplete = (docId: string) => waitingPages.has(docId)
 
-  const quiet = head === lastHead && !freshWorkspace.length && !freshPages.length
+  const quiet = head === lastHead && !freshWorkspace.length && !batch.length
 
   // ----- 2. upload what this device has that GitHub does not -----
   // any commit costs at least 3 writes: if even that is over budget, don't
@@ -392,7 +470,7 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
 
   await whenInkIdle(300, 5_000)
   const toCheck = new Set(dirtyDocs())
-  for (const [docId, fs] of byDoc) if (fs.length >= COMPACT_AT) toCheck.add(docId)
+  for (const [docId, fs] of byDoc) if (fs.length >= COMPACT_AT && !incomplete(docId)) toCheck.add(docId)
   // check the page list first so new pages are known before their contents
   const order = [...toCheck].sort((a, b) => (a === WORKSPACE_DOC ? -1 : b === WORKSPACE_DOC ? 1 : 0))
   for (const docId of order) {
@@ -409,8 +487,9 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
     const diff = Y.encodeStateAsUpdate(doc, Y.encodeStateVector(shadow.doc))
     const hasChanges = hasSomethingNew(shadow.doc, diff)
     debug('check', docId, { diffBytes: diff.length, remoteFiles: remoteFiles.length })
-    if (remoteFiles.length + (hasChanges ? 1 : 0) >= COMPACT_AT) {
-      // merge everything into one snapshot and drop the small files (old and new layout)
+    if (remoteFiles.length + (hasChanges ? 1 : 0) >= COMPACT_AT && !incomplete(docId)) {
+      // merge everything into one snapshot and drop the small files (old and new layout);
+      // only with all of them here, or the ones not yet downloaded would be lost
       const full = Y.encodeStateAsUpdate(doc)
       const file = pack(docId, 's', full)
       if (!file) {
@@ -556,6 +635,29 @@ async function markUnuploaded(): Promise<number> {
     }
   }
   return found
+}
+
+/**
+ * Takes downloaded updates into this device's copy of a document. A page that
+ * is not open is written to storage without staying in memory, so restoring a
+ * large library does not keep thousands of pages loaded.
+ */
+async function applyToLocal(docId: string, updates: Uint8Array[]) {
+  const apply = (doc: Y.Doc) => doc.transact(() => updates.forEach((u) => Y.applyUpdate(doc, u, REMOTE)), REMOTE)
+  if (docId === WORKSPACE_DOC || peekOpenPage(docId)) return apply(await loadDoc(docId))
+  const doc = new Y.Doc()
+  const p = new IndexeddbPersistence(pageDbNameOf(docId), doc)
+  await p.whenSynced
+  apply(doc)
+  await p.destroy() // waits for the writes to finish
+  doc.destroy()
+  forgetPageText(docId)
+  // opened in the meantime: it may have loaded from storage before the write
+  const open = peekOpenPage(docId)
+  if (open) {
+    await open.ready
+    apply(open.doc)
+  }
 }
 
 /** This device's copy of a document; pages that are not open are loaded only for the moment. */

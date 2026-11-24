@@ -12,6 +12,9 @@ export interface SearchResult {
 // Text of pages that are not open, remembered until the page changes.
 const cache = new Map<string, { updated: number; text: string }>()
 
+/** A page's contents changed without it being open (e.g. synced in): read it again next time. */
+export const forgetPageText = (id: string) => void cache.delete(id)
+
 function textOf(doc: Y.Doc, kind: PageMeta['kind']): string {
   if (kind === 'markdown') return doc.getText('markdown').toString()
   const out: string[] = []

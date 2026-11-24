@@ -13,7 +13,7 @@ import type { ExportRequest } from './export/plan'
 // The document editor is only downloaded when a document is opened.
 const MarkdownPage = lazy(() => import('./markdown/MarkdownPage'))
 import SyncSettings from './components/SyncSettings'
-import { getSyncState, onSyncState, type SyncState } from './sync/sync'
+import { getSyncState, onSyncState, setShownPage, type SyncState } from './sync/sync'
 import { notebooksMap, pagesMap, renamePage, sectionsMap, updatePage } from './store/workspace'
 import { paperOf, rememberPaper } from './paper'
 
@@ -139,6 +139,8 @@ export default function App() {
   }, [])
 
   const { nb, sec, page: current } = ready ? resolve(nbId, secId, currentId) : {}
+  // a page opened before its contents arrived (new device) is downloaded first
+  useEffect(() => setShownPage(current?.id), [current?.id])
 
   // keep the stored ids in step with what is really shown, and remember it
   useEffect(() => {

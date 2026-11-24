@@ -121,6 +121,8 @@ function pendingText(p: Pending): string {
   return ''
 }
 
+const pagesLeft = (n: number) => `${n} page${n === 1 ? '' : 's'} to go`
+
 /** Sync is on but something is still waiting to be uploaded (and no sync is running). */
 export const isPending = (s: SyncState, p: Pending) => s.kind !== 'off' && s.kind !== 'syncing' && (p.pages > 0 || p.structure)
 
@@ -130,13 +132,14 @@ export function describe(s: SyncState, p: Pending = { pages: 0, structure: false
     case 'off':
       return 'Saved on this device · sync is off'
     case 'syncing':
-      return 'Syncing…'
+      return s.left ? `Downloading notes · ${pagesLeft(s.left)}` : 'Syncing…'
     case 'offline':
       return waiting ? `Offline · ${waiting}` : 'Offline · will sync when back online'
     case 'error':
       return `Sync problem: ${s.message}${waiting ? ` · ${waiting}` : ''}`
     case 'idle':
       if (waiting) return waiting
+      if (s.left) return `Downloading notes · ${pagesLeft(s.left)}`
       return s.lastSync ? `Synced ${new Date(s.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Sync on'
   }
 }
