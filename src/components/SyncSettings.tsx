@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useState } from 'react'
 import { connect, disconnect, loadConfig, syncNow, type SyncState } from '../sync/sync'
 import { WORKSPACE_DOC, dirtyDocs, onDirtyChange, pagesMap } from '../store/workspace'
+import { formatBytes, requestPersistence, storageStatus, type StorageStatus } from '../store/storage'
 
 export default function SyncSettings({ state, onClose }: { state: SyncState; onClose(): void }) {
   const saved = loadConfig()
@@ -63,6 +64,8 @@ export default function SyncSettings({ state, onClose }: { state: SyncState; onC
           </label>
         </details>
 
+        <DeviceStorage />
+
         {error && <p className="sync-error">{error}</p>}
         {saved && !error && <p className={isPending(state, pending) ? 'sync-waiting' : 'sync-ok'}>{describe(state, pending)}</p>}
 
@@ -95,6 +98,39 @@ export default function SyncSettings({ state, onClose }: { state: SyncState; onC
         </button>
       </form>
     </div>
+  )
+}
+
+/** How much this device stores, and whether the browser may clear it. */
+function DeviceStorage() {
+  const [status, setStatus] = useState<StorageStatus | null>(null)
+  const [asked, setAsked] = useState(false)
+  useEffect(() => {
+    void storageStatus().then(setStatus)
+  }, [])
+  if (!status) return null
+  const used = status.usage !== undefined ? `${formatBytes(status.usage)} on this device` : 'On this device'
+  if (status.persisted !== false) {
+    return <p className="storage-line">{used}{status.persisted ? ' · kept safe from automatic clearing' : ''}</p>
+  }
+  return (
+    <p className="storage-line storage-warn">
+      {used} · the browser may clear it if the device runs out of space.{' '}
+      {asked ? (
+        <span>Not allowed yet: installing the app (Add to Home Screen / Install) usually allows it.</span>
+      ) : (
+        <button
+          type="button"
+          className="link-btn inline"
+          onClick={async () => {
+            if (await requestPersistence()) setStatus({ ...status, persisted: true })
+            else setAsked(true)
+          }}
+        >
+          Keep it safe
+        </button>
+      )}
+    </p>
   )
 }
 
