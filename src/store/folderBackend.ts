@@ -133,7 +133,9 @@ class FolderDoc implements DocPersistence {
           this.known.delete(name)
           this.pending.unshift(update)
           if (!this.closed) this.timer = window.setTimeout(() => void this.flush(), RETRY_DELAY)
-          setProblem(`Could not save to the notes folder: ${e instanceof Error ? e.message : String(e)}`)
+          // (without Electron's "Error invoking remote method 'fs:write': Error:" in front)
+          const reason = (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']*': (\w*Error: )?/, '')
+          setProblem(`Could not save to the notes folder: ${reason}`)
         },
       )
     return this.chain

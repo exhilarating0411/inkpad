@@ -14,6 +14,7 @@ import type { ExportRequest } from './export/plan'
 const MarkdownPage = lazy(() => import('./markdown/MarkdownPage'))
 import SyncSettings from './components/SyncSettings'
 import { getSyncState, onSyncState, setShownPage, type SyncState } from './sync/sync'
+import { onStorageProblem, storageProblem } from './store/folderBackend'
 import { notebooksMap, pagesMap, renamePage, sectionsMap, updatePage } from './store/workspace'
 import { paperOf, rememberPaper } from './paper'
 
@@ -127,12 +128,19 @@ export default function App() {
   const [zoom, setZoom] = useState(1)
   const [canvasCtx, setCanvasCtx] = useState<CanvasContext>({ selectionCount: 0, textActive: false })
   const api = useRef<CanvasApi | null>(null)
-  const [sync, setSync] = useState<SyncState>(getSyncState)
+  const [syncState, setSync] = useState<SyncState>(getSyncState)
   const [syncOpen, setSyncOpen] = useState(false)
   useEffect(() => {
     const off = onSyncState(setSync)
     return () => void off()
   }, [])
+  // Windows app: the notes folder cannot be written (shown where the sync status is)
+  const [saveProblem, setSaveProblem] = useState(storageProblem)
+  useEffect(() => {
+    const off = onStorageProblem(setSaveProblem)
+    return () => void off()
+  }, [])
+  const sync: SyncState = saveProblem ? { kind: 'error', message: saveProblem, storage: true } : syncState
 
   useEffect(() => {
     void structureReady.then(() => setReady(true))

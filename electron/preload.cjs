@@ -34,4 +34,5 @@ contextBridge.exposeInMainWorld('neatnotes', {
   },
   openExternal: (url) => ipcRenderer.send('shell:open', url),
   revealNotesFolder: () => ipcRenderer.send('folder:reveal'),
+  changeFolder: (syncOn) => ipcRenderer.invoke('folder:change', !!syncOn),
 })

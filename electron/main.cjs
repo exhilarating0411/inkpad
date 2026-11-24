@@ -13,7 +13,7 @@
  *   NEATNOTES_FOLDER     use this notes folder
  *   --dev                load the Vite dev server (http://localhost:5199) instead of dist-desktop
  */
-const { app, BrowserWindow, ipcMain, protocol, net, shell, safeStorage, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, protocol, net, shell, safeStorage, Menu, dialog } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const fsp = fs.promises
@@ -22,6 +22,8 @@ const { pathToFileURL } = require('node:url')
 
 app.setName('NeatNotes')
 if (process.env.NEATNOTES_USER_DATA) app.setPath('userData', process.env.NEATNOTES_USER_DATA)
+// tests only (never in the installed app): scripted answers for the Windows dialogs
+if (!app.isPackaged && process.env.NEATNOTES_TEST_SETUP) require(process.env.NEATNOTES_TEST_SETUP)
 
 const DEV = process.argv.includes('--dev')
 const DEV_URL = 'http://localhost:5199/'
@@ -50,7 +52,8 @@ function writeSettings(patch) {
   fs.renameSync(tmp, settingsPath())
 }
 
-const notesFolder = () => process.env.NEATNOTES_FOLDER || readSettings().folder || path.join(app.getPath('documents'), 'NeatNotes')
+const defaultFolder = () => process.env.NEATNOTES_FOLDER || path.join(app.getPath('documents'), 'NeatNotes')
+const notesFolder = () => readSettings().folder || defaultFolder()
 
 /** The two folders the page may use; fixed for the life of the window. */
 let roots = null
@@ -185,6 +188,222 @@ function watchNotes(win) {
   }
 }
 
+// ---------- choosing the notes folder ----------
+
+/** NeatNotes' own content of a notes folder: everything in v2\, and pictures (files named by their id) in images\ */
+const OWN_DIRS = ['v2', 'images']
+const isPictureFile = (name) => /^[A-Za-z0-9_-]{20,64}$/.test(name)
+
+const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase()
+/** one folder is the other, or inside it */
+function overlaps(a, b) {
+  const x = path.resolve(a).toLowerCase() + path.sep
+  const y = path.resolve(b).toLowerCase() + path.sep
+  return x.startsWith(y) || y.startsWith(x)
+}
+
+function hasNotes(dir) {
+  try {
+    return fs.readdirSync(path.join(dir, 'v2', 'workspace')).some((n) => n.endsWith('.bin'))
+  } catch {
+    return false
+  }
+}
+
+function canWrite(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const probe = path.join(dir, `.neatnotes-check-${crypto.randomBytes(4).toString('hex')}`)
+    fs.writeFileSync(probe, 'ok')
+    fs.rmSync(probe)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function pickFolder(win, defaultPath) {
+  const options = {
+    title: 'Choose a folder for your notes',
+    defaultPath,
+    buttonLabel: 'Use this folder',
+    properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
+  }
+  const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+  return r.canceled || !r.filePaths[0] ? null : path.resolve(r.filePaths[0])
+}
+
+function message(win, options) {
+  const o = { noLink: true, ...options }
+  return win ? dialog.showMessageBox(win, o) : dialog.showMessageBox(o)
+}
+
+/** A folder NeatNotes may use, or null (the user was told why not). */
+async function checkFolder(win, dir, current) {
+  if (overlaps(dir, app.getPath('userData')) || (current && !samePath(dir, current) && overlaps(dir, current))) {
+    await message(win, { type: 'warning', message: 'Please choose another folder.', detail: 'The notes folder cannot be inside the current one, or contain it.' })
+    return null
+  }
+  if (!canWrite(dir)) {
+    await message(win, { type: 'error', message: 'NeatNotes cannot save in that folder.', detail: dir })
+    return null
+  }
+  return dir
+}
+
+/** First start: where the notes go. */
+async function firstRunFolder() {
+  const suggested = defaultFolder()
+  for (;;) {
+    const { response } = await message(null, {
+      type: 'question',
+      title: 'Welcome to NeatNotes',
+      message: 'Where should NeatNotes keep your notes?',
+      detail:
+        `Suggested: ${suggested}\n\n` +
+        'Your notes are saved there as ordinary files, so you can back them up, or keep them in a synced folder such as OneDrive. ' +
+        'To use notes you already have, choose their folder. You can change this later in the settings.',
+      buttons: ['Use this folder', 'Choose another folder…'],
+      defaultId: 0,
+      cancelId: 0,
+    })
+    if (response === 0 && (await checkFolder(null, suggested))) return suggested
+    if (response === 0) continue
+    const picked = await pickFolder(null, path.dirname(suggested))
+    if (picked && (await checkFolder(null, picked))) return picked
+  }
+}
+
+/** Every file below `dir`, as paths relative to it. */
+async function filesBelow(dir, rel = '') {
+  let out = []
+  let entries
+  try {
+    entries = await fsp.readdir(path.join(dir, rel), { withFileTypes: true })
+  } catch (e) {
+    if (e.code === 'ENOENT') return out
+    throw e
+  }
+  for (const d of entries) {
+    const r = path.join(rel, d.name)
+    if (d.isDirectory()) out = out.concat(await filesBelow(dir, r))
+    else if (d.isFile() && !isTemp(d.name)) out.push(r)
+  }
+  return out
+}
+const ownFiles = async (root) =>
+  (await Promise.all(OWN_DIRS.map(async (d) => (await filesBelow(root, d)).filter((r) => d !== 'images' || isPictureFile(path.basename(r)))))).flat()
+
+/** Copies the notes into another folder and checks every copy. Files already there are kept (same name = same content). */
+async function copyNotes(from, to) {
+  const files = await ownFiles(from)
+  for (const rel of files) {
+    const dst = path.join(to, rel)
+    await fsp.mkdir(path.dirname(dst), { recursive: true })
+    await fsp.copyFile(path.join(from, rel), dst, fs.constants.COPYFILE_EXCL).catch((e) => {
+      if (e.code !== 'EEXIST') throw e
+    })
+  }
+  for (const rel of files) {
+    const [a, b] = await Promise.all([fsp.stat(path.join(from, rel)), fsp.stat(path.join(to, rel))])
+    if (a.size !== b.size) throw new Error(`${rel} was not copied completely`)
+  }
+  return files
+}
+
+/** Removes NeatNotes' files from a folder it no longer uses (nothing else), then the folders left empty. */
+async function removeNotes(root, files) {
+  for (const rel of files) await fsp.rm(path.join(root, rel), { force: true })
+  const removeEmpty = async (dir) => {
+    let entries
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const d of entries) if (d.isDirectory()) await removeEmpty(path.join(dir, d.name))
+    await fsp.rmdir(dir).catch(() => {}) // only if empty
+  }
+  for (const d of OWN_DIRS) await removeEmpty(path.join(root, d))
+  await fsp.rmdir(root).catch(() => {})
+}
+
+/** Asks the page to write everything not written yet (at most 5 s). */
+function flushPage(win) {
+  return new Promise((resolve) => {
+    const done = () => {
+      ipcMain.removeListener('app:flushed', done)
+      clearTimeout(timer)
+      resolve()
+    }
+    ipcMain.on('app:flushed', done)
+    const timer = setTimeout(done, 5000)
+    win.webContents.send('app:flush')
+  })
+}
+
+/** Settings → Change folder. Moves the notes, or combines them with / switches to notes already there. */
+ipcMain.handle('folder:change', async (e, syncOn) => {
+  const win = BrowserWindow.fromWebContents(e.sender)
+  const from = roots.notes
+  const picked = await pickFolder(win, path.dirname(from))
+  if (!picked || samePath(picked, from)) return 'cancelled'
+  const to = await checkFolder(win, picked, from)
+  if (!to) return 'cancelled'
+
+  let mode
+  if (!hasNotes(to)) {
+    const { response } = await message(win, {
+      type: 'question',
+      title: 'Move notes',
+      message: 'Move your notes to this folder?',
+      detail: `${to}\n\nAll notes and pictures are moved there, and NeatNotes keeps them there from now on.`,
+      buttons: ['Move notes', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (response !== 0) return 'cancelled'
+    mode = 'move'
+  } else {
+    const { response } = await message(win, {
+      type: 'question',
+      title: 'Notes folder',
+      message: 'This folder already has NeatNotes notes.',
+      detail:
+        `${to}\n\n` +
+        'Combine: your notes are copied there too, and both appear together.\n' +
+        `Use only those: your current notes stay in ${from} and are not shown.` +
+        (syncOn ? '\n\nGitHub sync is on, so the notes on GitHub are added to that folder either way.' : ''),
+      buttons: ['Combine', 'Use only those', 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+    })
+    if (response === 2) return 'cancelled'
+    mode = response === 0 ? 'combine' : 'switch'
+  }
+
+  await flushPage(win)
+  let copied = []
+  try {
+    if (mode !== 'switch') copied = await copyNotes(from, to)
+  } catch (err) {
+    await message(win, { type: 'error', message: 'The notes could not be copied. Nothing was changed.', detail: String(err && err.message ? err.message : err) })
+    return 'failed'
+  }
+  if (mode === 'switch') {
+    // what this computer knows about GitHub described the old folder: start over
+    await fsp.rm(path.join(roots.device, 'sync'), { recursive: true, force: true })
+    await fsp.rm(path.join(roots.device, 'shadows'), { recursive: true, force: true })
+  }
+  // (after the reload, the first sync compares every page with GitHub and uploads what is new)
+  writeSettings({ folder: to })
+  if (mode === 'move') await removeNotes(from, copied).catch((err) => console.warn('NeatNotes: old folder not fully emptied', err))
+  setupRoots()
+  watchNotes(win)
+  win.webContents.reload()
+  return mode
+})
+
 // ---------- the window ----------
 
 function createWindow() {
@@ -268,8 +487,9 @@ else {
     }
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     Menu.setApplicationMenu(null)
+    if (!readSettings().folder && !process.env.NEATNOTES_FOLDER) writeSettings({ folder: await firstRunFolder() })
     protocol.handle('app', async (req) => {
       const { pathname } = new URL(req.url)
       const rel = decodeURIComponent(pathname === '/' ? '/index.html' : pathname)

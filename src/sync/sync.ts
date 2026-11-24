@@ -65,7 +65,8 @@ export type SyncState =
   | { kind: 'idle'; lastSync: number; left?: number }
   | { kind: 'syncing'; left?: number }
   | { kind: 'offline' }
-  | { kind: 'error'; message: string }
+  /** `storage`: the problem is saving on this device (the Windows app's notes folder), not syncing */
+  | { kind: 'error'; message: string; storage?: boolean }
 
 const CONFIG_KEY = 'inkpad:sync'
 /** how often to look for other devices' changes while the app is on screen (unchanged answers are free) */
@@ -186,6 +187,15 @@ export function start() {
   window.addEventListener('online', onOnline)
   document.addEventListener('visibilitychange', onVisibility)
   schedulePoll()
+}
+
+/** Stops syncing for a moment and waits for a sync in progress to finish (e.g. while the notes folder changes). */
+export async function pauseSync() {
+  stop()
+  await running?.catch(() => {})
+}
+export function resumeSync() {
+  if (loadConfig()) start()
 }
 
 function stop() {

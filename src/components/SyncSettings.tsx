@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useState } from 'react'
-import { connect, disconnect, loadConfig, syncNow, type SyncState } from '../sync/sync'
+import { connect, disconnect, loadConfig, pauseSync, resumeSync, syncNow, type SyncState } from '../sync/sync'
 import { WORKSPACE_DOC, dirtyDocs, onDirtyChange, pagesMap } from '../store/workspace'
 import { formatBytes, requestPersistence, storageStatus, type StorageStatus } from '../store/storage'
 import { desktop } from '../desktop/api'
@@ -108,13 +108,29 @@ function DeviceStorage() {
   return <BrowserStorage />
 }
 
-/** Windows app: where the notes folder is. */
+/** Windows app: where the notes folder is, and changing it. */
 function NotesFolder() {
+  const [busy, setBusy] = useState(false)
+  const change = async () => {
+    setBusy(true)
+    // nothing may be written while the notes are moved
+    await pauseSync()
+    const result = await desktop!.changeFolder(!!loadConfig()).catch(() => 'failed' as const)
+    // when the folder changed, the app reloads from the new one; otherwise carry on
+    if (result === 'cancelled' || result === 'failed') {
+      resumeSync()
+      setBusy(false)
+    }
+  }
   return (
     <p className="storage-line">
       Notes are saved in <b>{desktop!.notesFolder}</b>{' '}
       <button type="button" className="link-btn inline" onClick={() => desktop!.revealNotesFolder()}>
         Show in Explorer
+      </button>
+      {' · '}
+      <button type="button" className="link-btn inline" disabled={busy} onClick={() => void change()}>
+        {busy ? 'Changing…' : 'Change…'}
       </button>
     </p>
   )
@@ -190,6 +206,7 @@ export function describe(s: SyncState, p: Pending = { pages: 0, structure: false
     case 'offline':
       return waiting ? `Offline · ${waiting}` : 'Offline · will sync when back online'
     case 'error':
+      if (s.storage) return s.message
       return `Sync problem: ${s.message}${waiting ? ` · ${waiting}` : ''}`
     case 'idle':
       if (waiting) return waiting

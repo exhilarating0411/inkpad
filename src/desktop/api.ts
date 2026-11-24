@@ -35,6 +35,11 @@ export interface DesktopApi {
   openExternal(url: string): void
   /** shows the notes folder in Explorer */
   revealNotesFolder(): void
+  /**
+   * Lets the user pick another notes folder (Windows dialogs) and moves the notes there, or combines
+   * them with / switches to notes already there. The page reloads when the folder changed.
+   */
+  changeFolder(syncOn: boolean): Promise<'move' | 'combine' | 'switch' | 'cancelled' | 'failed'>
 }
 
 export const desktop: DesktopApi | undefined = (window as unknown as { neatnotes?: DesktopApi }).neatnotes
