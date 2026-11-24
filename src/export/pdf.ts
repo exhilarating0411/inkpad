@@ -45,8 +45,8 @@ const TEXT_COLOUR = '#22201c'
 export async function exportPdf(req: ExportRequest, onProgress: (p: Progress) => void, cancelled: () => boolean): Promise<Blob> {
   const pdf = await PDFDocument.create()
   pdf.setTitle(req.title, { showInWindowTitleBar: true })
-  pdf.setCreator('Notes')
-  pdf.setProducer('Notes')
+  pdf.setCreator('NeatNotes')
+  pdf.setProducer('NeatNotes')
 
   const ids = exportPages(req).filter((id) => pagesMap.has(id))
   const firstPdfPage = new Map<string, number>()

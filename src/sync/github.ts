@@ -107,8 +107,8 @@ export class GitHub {
         await this.req(`/contents/README.md`, {
           method: 'PUT',
           body: JSON.stringify({
-            message: 'Create Notes repository',
-            content: btoa('# Notes\n\nSynced data of the Notes app. Do not edit by hand.\n'),
+            message: 'Create NeatNotes repository',
+            content: btoa('# NeatNotes\n\nSynced data of the NeatNotes app. Do not edit by hand.\n'),
             branch: this.cfg.branch,
           }),
         })

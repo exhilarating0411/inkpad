@@ -1,4 +1,4 @@
-# Notes
+# NeatNotes
 
 A small OneNote-style notes app that runs in the browser and installs as an app on Windows, Mac, iPad and iPhone.
 
