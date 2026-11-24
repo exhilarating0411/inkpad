@@ -134,6 +134,49 @@ export function elementInLasso(el: CanvasElement, poly: number[], polyBox: Rect,
   return pointInPolygon(b.x + b.w / 2, b.y + b.h / 2, poly)
 }
 
+/** Scaling about a fixed point (ax, ay) by factor k. */
+export interface Scale {
+  ax: number
+  ay: number
+  k: number
+}
+
+const r1 = (n: number) => Math.round(n * 10) / 10
+
+/**
+ * The element made k times bigger (or smaller) about (ax, ay): handwriting
+ * keeps its shape and gets proportionally thicker or thinner lines, text gets
+ * a proportional font size and width, pictures keep their proportions.
+ */
+export function scaleElement(el: CanvasElement, { ax, ay, k }: Scale): CanvasElement {
+  const sx = (x: number) => ax + (x - ax) * k
+  const sy = (y: number) => ay + (y - ay) * k
+  switch (el.type) {
+    case 'stroke': {
+      const points = el.points.slice()
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+      for (let i = 0; i < points.length; i += 3) {
+        const x = r1(sx(points[i] + el.dx))
+        const y = r1(sy(points[i + 1] + el.dy))
+        points[i] = x
+        points[i + 1] = y
+        x0 = Math.min(x0, x)
+        y0 = Math.min(y0, y)
+        x1 = Math.max(x1, x)
+        y1 = Math.max(y1, y)
+      }
+      return { ...el, points, dx: 0, dy: 0, size: Math.max(0.3, r1(el.size * k)), bbox: [x0, y0, x1, y1] }
+    }
+    case 'text':
+      return { ...el, x: sx(el.x), y: sy(el.y), w: Math.max(40, el.w * k), fontSize: Math.max(4, r1(el.fontSize * k)) }
+    case 'image':
+      return { ...el, x: sx(el.x), y: sy(el.y), w: el.w * k, h: el.h * k }
+  }
+}
+
+/** A rectangle after scaling. */
+export const scaleRect = (r: Rect, { ax, ay, k }: Scale): Rect => ({ x: ax + (r.x - ax) * k, y: ay + (r.y - ay) * k, w: r.w * k, h: r.h * k })
+
 /** Normalises a rectangle drawn from (x0,y0) to (x1,y1) in any direction. */
 export function rectFromPoints(x0: number, y0: number, x1: number, y1: number): Rect {
   return { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) }

@@ -3,21 +3,21 @@ import type { ImageElement, StrokeElement, TextElement } from '../store/types'
 import { imageUrl } from '../store/images'
 import { strokeOptions, strokePath } from './ink'
 import { inkColor } from '../theme'
+import type { Scale } from './geometry'
 
 // ---------- ink ----------
 
-export const StrokePath = memo(function StrokePath({ el, ox = 0, oy = 0 }: { el: StrokeElement; ox?: number; oy?: number }) {
+export const StrokePath = memo(function StrokePath({ el, ox = 0, oy = 0, scale }: { el: StrokeElement; ox?: number; oy?: number; scale?: Scale }) {
   const d = useMemo(() => strokePath(el.points, strokeOptions(el)), [el.points, el.size, el.highlighter, el.pressure])
   const tx = el.dx + ox
   const ty = el.dy + oy
-  return (
-    <path
-      d={d}
-      style={{ fill: inkColor(el.color) }}
-      opacity={el.highlighter ? 0.35 : 1}
-      transform={tx || ty ? `translate(${tx} ${ty})` : undefined}
-    />
-  )
+  // while being resized: shown scaled (line width included) until the new size is saved
+  const transform = scale
+    ? `translate(${scale.ax} ${scale.ay}) scale(${scale.k}) translate(${tx - scale.ax} ${ty - scale.ay})`
+    : tx || ty
+      ? `translate(${tx} ${ty})`
+      : undefined
+  return <path d={d} style={{ fill: inkColor(el.color) }} opacity={el.highlighter ? 0.35 : 1} transform={transform} />
 })
 
 // ---------- images ----------
@@ -64,6 +64,8 @@ export const TextBox = memo(function TextBox(props: {
   ox: number
   oy: number
   w?: number
+  /** shown this many times bigger while a selection is being resized */
+  scale?: number
   editable: boolean
   autoFocus: boolean
   onText: (id: string, text: string) => void
@@ -96,7 +98,12 @@ export const TextBox = memo(function TextBox(props: {
     <div
       className={'el-text' + (editable ? ' editable' : '')}
       data-id={el.id}
-      style={{ left: el.x + ox, top: el.y + oy, width: props.w ?? el.w }}
+      style={{
+        left: el.x + ox,
+        top: el.y + oy,
+        width: props.w ?? el.w,
+        ...(props.scale ? { transform: `scale(${props.scale})`, transformOrigin: '0 0' } : null),
+      }}
     >
       <div className="tb-handle" data-handle="move" data-id={el.id} title="Drag to move" />
       <textarea

@@ -13,9 +13,12 @@ import {
   polygonBounds,
   rectFromPoints,
   rectsOverlap,
+  scaleElement,
+  scaleRect,
   strokeHit,
   unionBounds,
   type Rect,
+  type Scale,
 } from './geometry'
 import { ImageView, StrokePath, TextBox } from './ElementViews'
 import { inkColor } from '../theme'
@@ -85,6 +88,8 @@ type Gesture =
   | { kind: 'pinch'; ids: [number, number]; startDist: number; startScale: number; worldX: number; worldY: number }
   | { kind: 'move'; pointerId: number; startX: number; startY: number }
   | { kind: 'resize'; pointerId: number; id: string; startX: number; startW: number; ratio: number; isImage: boolean }
+  /** resize the whole selection about its top-left corner (ax, ay); (bw, bh) = its size when started */
+  | { kind: 'scale'; pointerId: number; ax: number; ay: number; bw: number; bh: number }
   /** select by drawing around things (screen points); a tap on `hit` selects just that stroke */
   | { kind: 'lasso'; pointerId: number; pts: number[]; hit?: string; additive: boolean }
 
@@ -137,6 +142,13 @@ export default function Canvas(props: Props) {
   elementsRef.current = elements
 
   const [vp, setVpState] = useState<Viewport>(() => loadViewport(pageId))
+  /**
+   * The zoom the page content was last drawn at. While zooming, the drawn
+   * picture is only stretched (fast, but a shrunken picture gets jagged
+   * edges); once zooming stops, the content is drawn again at the new zoom so
+   * ink stays smooth at any size.
+   */
+  const [drawnAt, setDrawnAt] = useState<Viewport>(vp)
   const vpRef = useRef(vp)
   const setVp = useCallback((v: Viewport) => {
     vpRef.current = v
@@ -152,6 +164,8 @@ export default function Canvas(props: Props) {
 
   const [drag, setDrag] = useState<{ dx: number; dy: number } | null>(null)
   const [resize, setResize] = useState<{ id: string; w: number; h: number } | null>(null)
+  /** the selection being resized: shown scaled until the pen lifts */
+  const [scaling, setScaling] = useState<Scale | null>(null)
   /** the lasso being drawn (screen coordinates); shown as a rectangle when it encloses almost nothing */
   const [lasso, setLasso] = useState<{ pts: number[]; rect: boolean } | null>(null)
   /** how often each clip was pasted here, so repeated pastes do not land on top of each other */
@@ -217,7 +231,9 @@ export default function Canvas(props: Props) {
     update()
     page.ready.then(update)
     setSelection(new Set())
-    setVp(loadViewport(pageId))
+    const v = loadViewport(pageId)
+    setVp(v)
+    setDrawnAt(v)
     return () => {
       alive = false
       page.elements.unobserve(update)
@@ -244,6 +260,14 @@ export default function Canvas(props: Props) {
     props.onContextChange({ selectionCount: selection.size, textActive: !!focusedText || textSelected })
   }, [selection, focusedText, elements, props.onContextChange])
   useEffect(() => props.onZoomChange(vp.scale), [vp.scale, props.onZoomChange])
+
+  // Zooming stopped: draw the content again, sharp, at the new zoom.
+  // (Scrolling alone needs no redraw: a moved picture stays sharp.)
+  useEffect(() => {
+    if (vp.scale === drawnAt.scale) return
+    const t = setTimeout(() => setDrawnAt(vpRef.current), 200)
+    return () => clearTimeout(t)
+  }, [vp, drawnAt.scale])
 
   // Remember where each page was scrolled to.
   useEffect(() => {
@@ -565,6 +589,12 @@ export default function Canvas(props: Props) {
     }
   }
 
+  /** How much bigger the selection gets when its corner is dragged to (wx, wy): along the diagonal, so it keeps its shape. */
+  const scaleFactor = (g: { ax: number; ay: number; bw: number; bh: number }, wx: number, wy: number) => {
+    const k = ((wx - g.ax) * g.bw + (wy - g.ay) * g.bh) / (g.bw * g.bw + g.bh * g.bh)
+    return Math.min(20, Math.max(0.1, k))
+  }
+
   // ---------- pointer input ----------
   const onPointerDown = (e: React.PointerEvent) => {
     const target = e.target as HTMLElement
@@ -621,6 +651,11 @@ export default function Canvas(props: Props) {
 
     // Move / resize handles
     const handle = target.closest<HTMLElement>('[data-handle]')
+    if (handle?.dataset.handle === 'scale') {
+      const box = unionBounds(selectedElements(), textHeights.current)
+      if (box && box.w + box.h > 0) gesture.current = { kind: 'scale', pointerId: e.pointerId, ax: box.x, ay: box.y, bw: box.w, bh: box.h }
+      return
+    }
     if (handle && (tool === 'select' || tool === 'text')) {
       const id = handle.dataset.id!
       const el = page.elements.get(id)
@@ -781,6 +816,11 @@ export default function Canvas(props: Props) {
         setResize({ id: g.id, w: newW, h: newW * g.ratio })
         return
       }
+      case 'scale': {
+        const w = toWorld(s.x, s.y)
+        setScaling({ ax: g.ax, ay: g.ay, k: scaleFactor(g, w.x, w.y) })
+        return
+      }
       case 'lasso': {
         const n = g.pts.length
         if (Math.hypot(s.x - g.pts[n - 2], s.y - g.pts[n - 1]) < 3) return
@@ -845,6 +885,21 @@ export default function Canvas(props: Props) {
         if (cancelled || !el || el.type === 'stroke') return
         const newW = Math.max(g.isImage ? 24 : 80, g.startW + w.x - g.startX)
         transact(() => page.elements.set(g.id, el.type === 'image' ? { ...el, w: newW, h: newW * g.ratio } : { ...el, w: newW }))
+        return
+      }
+      case 'scale': {
+        setScaling(null)
+        const s = toScreen(e)
+        const w = toWorld(s.x, s.y)
+        const k = scaleFactor(g, w.x, w.y)
+        if (cancelled || Math.abs(k - 1) < 0.005) return
+        const sc = { ax: g.ax, ay: g.ay, k }
+        transact(() => {
+          for (const id of selectionRef.current) {
+            const el = page.elements.get(id)
+            if (el) page.elements.set(id, scaleElement(el, sc))
+          }
+        })
         return
       }
       case 'lasso': {
@@ -1027,6 +1082,9 @@ export default function Canvas(props: Props) {
 
   // ---------- rendering ----------
   const offsetFor = (id: string) => (drag && selection.has(id) ? drag : null)
+  /** zoom change since the content was last drawn */
+  const rel = vp.scale / drawnAt.scale
+  const scaleFor = (id: string) => (scaling && selection.has(id) ? scaling : undefined)
   const images = elements.filter((e): e is ImageElement => e.type === 'image')
   const texts = elements.filter((e): e is TextElement => e.type === 'text')
   const strokes = elements.filter((e): e is StrokeElement => e.type === 'stroke')
@@ -1037,7 +1095,7 @@ export default function Canvas(props: Props) {
 
   // copy / cut / duplicate / delete, just above the selection (below it near the top edge)
   let actions: { left: number; top: number } | null = null
-  const selBox = tool === 'select' && !drag && !resize && !lasso ? unionBounds(selected, textHeights.current) : null
+  const selBox = tool === 'select' && !drag && !resize && !lasso && !scaling ? unionBounds(selected, textHeights.current) : null
   if (selBox && rootRef.current) {
     const W = rootRef.current.clientWidth
     const H = rootRef.current.clientHeight
@@ -1077,26 +1135,36 @@ export default function Canvas(props: Props) {
         void insertImages(files, toWorld(s.x, s.y))
       }}
     >
+      {/* outer: only the change since the content was drawn (moved by the compositor, no redraw);
+          inner: the zoom it was drawn at (part of the drawing, so ink is drawn sharp at that zoom) */}
+      <div className="world" style={{ transform: `translate(${vp.x - rel * drawnAt.x}px, ${vp.y - rel * drawnAt.y}px) scale(${rel})` }}>
       <div
-        className="world"
+        className="world-inner"
         style={{
-          transform: `translate(${vp.x}px, ${vp.y}px) scale(${vp.scale})`,
-          ['--inv' as string]: 1 / vp.scale,
+          transform: `translate(${drawnAt.x}px, ${drawnAt.y}px) scale(${drawnAt.scale})`,
+          ['--inv' as string]: 1 / drawnAt.scale,
         }}
       >
         {images.map((el) => {
+          const sc = scaleFor(el.id)
+          if (sc) {
+            const b = scaleRect(el, sc)
+            return <ImageView key={el.id} el={el} ox={b.x - el.x} oy={b.y - el.y} w={b.w} h={b.h} />
+          }
           const o = offsetFor(el.id)
           const r = resize?.id === el.id ? resize : null
           return <ImageView key={el.id} el={el} ox={o?.dx ?? 0} oy={o?.dy ?? 0} w={r?.w} h={r?.h} />
         })}
         {texts.map((el) => {
-          const o = offsetFor(el.id)
+          const sc = scaleFor(el.id)
+          const o = sc ? { dx: sc.ax + (el.x - sc.ax) * sc.k - el.x, dy: sc.ay + (el.y - sc.ay) * sc.k - el.y } : offsetFor(el.id)
           return (
             <TextBox
               key={el.id}
               el={el}
               ox={o?.dx ?? 0}
               oy={o?.dy ?? 0}
+              scale={sc?.k}
               w={resize?.id === el.id ? resize.w : undefined}
               editable={textEditable}
               autoFocus={editingId === el.id}
@@ -1110,7 +1178,7 @@ export default function Canvas(props: Props) {
         <svg className="ink" width="1" height="1">
           {strokes.map((el) => {
             const o = offsetFor(el.id)
-            return <StrokePath key={el.id} el={el} ox={o?.dx} oy={o?.dy} />
+            return <StrokePath key={el.id} el={el} ox={o?.dx} oy={o?.dy} scale={scaleFor(el.id)} />
           })}
           <path ref={livePathRef} />
         </svg>
@@ -1119,13 +1187,21 @@ export default function Canvas(props: Props) {
             const o = offsetFor(el.id)
             if (o) b = { ...b, x: b.x + o.dx, y: b.y + o.dy }
             if (resize?.id === el.id) b = { ...b, w: resize.w, h: el.type === 'image' ? resize.h : b.h }
+            if (scaling) b = scaleRect(b, scaling)
             return <div key={el.id} className="sel-box" style={{ left: b.x, top: b.y, width: b.w, height: b.h }} />
           })}
+        {/* one picture or text box keeps its own handle (a text box then rewraps); anything else scales as a whole */}
+        {tool === 'select' && selected.length > 0 && !(single && single.type !== 'stroke') && !drag && !lasso && (() => {
+          let b = unionBounds(selected, textHeights.current)!
+          if (scaling) b = scaleRect(b, scaling)
+          return <div className="resize-handle" data-handle="scale" title="Drag to resize" style={{ left: b.x + b.w, top: b.y + b.h }} />
+        })()}
         {single && single.type !== 'stroke' && !drag && (() => {
           let b = elementBounds(single, textHeights.current)
           if (resize?.id === single.id) b = { ...b, w: resize.w, h: single.type === 'image' ? resize.h : b.h }
           return <div className="resize-handle" data-handle="resize" data-id={single.id} style={{ left: b.x + b.w, top: b.y + b.h }} />
         })()}
+      </div>
       </div>
       {lasso &&
         (lasso.rect ? (

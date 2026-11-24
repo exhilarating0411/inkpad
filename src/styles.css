@@ -312,6 +312,14 @@ button {
   will-change: transform;
 }
 
+/* zoom the content is drawn at (see Canvas: drawnAt); no will-change, so it is drawn sharp */
+.world-inner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
 .ink {
   position: absolute;
   left: 0;
