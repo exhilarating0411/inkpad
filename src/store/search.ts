@@ -1,7 +1,6 @@
-import * as Y from 'yjs'
-import { IndexeddbPersistence } from 'y-indexeddb'
+import type * as Y from 'yjs'
 import type { CanvasElement, PageMeta } from './types'
-import { pageDbNameOf, pagesMap, peekOpenPage } from './workspace'
+import { pagesMap, peekOpenPage, withStoredPage } from './workspace'
 
 export interface SearchResult {
   page: PageMeta
@@ -30,12 +29,7 @@ async function pageText(meta: PageMeta): Promise<string> {
   }
   const hit = cache.get(meta.id)
   if (hit && hit.updated === meta.updated) return hit.text
-  const doc = new Y.Doc()
-  const p = new IndexeddbPersistence(pageDbNameOf(meta.id), doc)
-  await p.whenSynced
-  const text = textOf(doc, meta.kind)
-  await p.destroy()
-  doc.destroy()
+  const text = await withStoredPage(meta.id, (doc) => textOf(doc, meta.kind))
   cache.set(meta.id, { updated: meta.updated, text })
   return text
 }

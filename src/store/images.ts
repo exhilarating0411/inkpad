@@ -1,7 +1,7 @@
-import { createStore, get, set } from 'idb-keyval'
 import { nanoid } from 'nanoid'
+import { backend } from './backend'
 
-const store = createStore('inkpad-images', 'blobs')
+const store = backend.images
 const urlCache = new Map<string, Promise<string | null>>()
 
 // ---------- sync support ----------
@@ -14,7 +14,7 @@ export function clearPendingImage(id: string) {
   pending.delete(id)
   savePending()
 }
-export const getImageBlob = (id: string) => get<Blob>(id, store)
+export const getImageBlob = (id: string) => store.get(id)
 
 /** Set by the sync engine: downloads a picture this device does not have yet. */
 let fetchRemote: ((id: string) => Promise<Uint8Array | null>) | null = null
@@ -31,12 +31,12 @@ function sniffType(b: Uint8Array): string {
 }
 
 async function loadImage(id: string): Promise<string | null> {
-  let blob = await get<Blob>(id, store)
+  let blob = await store.get(id)
   if (!blob && fetchRemote) {
     const bytes = await fetchRemote(id).catch(() => null)
     if (bytes) {
       blob = new Blob([bytes as BlobPart], { type: sniffType(bytes) })
-      await set(id, blob, store)
+      await store.set(id, blob)
     }
   }
   return blob ? URL.createObjectURL(blob) : null
@@ -73,8 +73,8 @@ export async function storeImage(input: Blob): Promise<StoredImage> {
   }
   bitmap.close()
   const id = await contentId(blob)
-  if (!(await get(id, store))) {
-    await set(id, blob, store)
+  if (!(await store.get(id))) {
+    await store.set(id, blob)
     pending.add(id)
     savePending()
   }

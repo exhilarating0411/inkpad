@@ -14,11 +14,10 @@
  * The bookmarks follow notebook → section → page → sub-page.
  */
 import * as Y from 'yjs'
-import { IndexeddbPersistence } from 'y-indexeddb'
 import { PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, rgb, type PDFPage } from 'pdf-lib'
 import { createContext, destroyContext, domToCanvas } from 'modern-screenshot'
 import type { CanvasElement, ImageElement, PageMeta, StrokeElement, TextElement } from '../store/types'
-import { pageDbNameOf, pagesMap, peekOpenPage } from '../store/workspace'
+import { pagesMap, withStoredPage } from '../store/workspace'
 import { getImageBlob, imageUrl } from '../store/images'
 import { strokeOptions, strokePathExplicit } from '../canvas/ink'
 import { INK } from '../theme'
@@ -73,22 +72,7 @@ export class Cancelled extends Error {
 }
 
 /** The page's contents: the open copy if it is open, otherwise a temporary one from storage. */
-async function withPageDoc(meta: PageMeta, fn: (doc: Y.Doc) => Promise<void>) {
-  const open = peekOpenPage(meta.id)
-  if (open) {
-    await open.ready
-    return fn(open.doc)
-  }
-  const doc = new Y.Doc()
-  const p = new IndexeddbPersistence(pageDbNameOf(meta.id), doc)
-  await p.whenSynced
-  try {
-    await fn(doc)
-  } finally {
-    await p.destroy()
-    doc.destroy()
-  }
-}
+const withPageDoc = (meta: PageMeta, fn: (doc: Y.Doc) => Promise<void>) => withStoredPage(meta.id, fn)
 
 // ---------- colours and text images ----------
 

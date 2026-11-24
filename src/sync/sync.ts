@@ -34,8 +34,6 @@
  * changes are not held up behind a restore.
  */
 import * as Y from 'yjs'
-import { IndexeddbPersistence } from 'y-indexeddb'
-import { createStore, get, set } from 'idb-keyval'
 import { nanoid } from 'nanoid'
 import { GitHub, GitHubError, fromBase64, toBase64, type NewFile, type RemoteFile, type SyncConfig } from './github'
 import { READ_LIMITS, readBudget, writeBudget } from './budget'
@@ -49,12 +47,13 @@ import {
   markDirty,
   markEverythingDirty,
   onLocalChange,
-  pageDbNameOf,
   pagesMap,
   peekOpenPage,
   workspaceDoc,
   workspaceReady,
+  withStoredPage,
 } from '../store/workspace'
+import { backend } from '../store/backend'
 import { clearPendingImage, getImageBlob, pendingImages, setRemoteImageFetcher } from '../store/images'
 import { whenInkIdle } from '../store/activity'
 import { forgetPageText } from '../store/search'
@@ -87,7 +86,7 @@ const MAX_DOWNLOADS_PER_ROUND = 60
 /** new files go here; old ones (without the prefix) are still read */
 const V2 = 'v2/'
 
-const meta = createStore('inkpad-sync', 'meta')
+const meta = backend.syncMeta
 const debug = (...a: unknown[]) => localStorage.getItem('inkpad:debug') && console.log('[sync]', ...a)
 const deviceId = (() => {
   let id = localStorage.getItem('inkpad:device')
@@ -347,14 +346,14 @@ async function syncRound(gh: GitHub, flush: boolean): Promise<boolean> {
 
 async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise<Shadow>, flush: boolean): Promise<boolean> {
   const head = await gh.head()
-  const lastHead = await get<string>('head', meta)
-  const applied = new Set<string>((await get<string[]>('applied', meta)) ?? [])
+  const lastHead = await meta.get<string>('head')
+  const applied = new Set<string>((await meta.get<string[]>('applied')) ?? [])
   // the tree of `head`, if known: saves a request when committing. Only ever
   // used for exactly that commit; a tree of another commit would drop files.
-  const known = await get<{ head: string; tree: string }>('tree', meta)
+  const known = await meta.get<{ head: string; tree: string }>('tree')
   let baseTree = known?.head === head ? known.tree : undefined
   let files: RemoteFile[]
-  if (head === lastHead) files = (await get<RemoteFile[]>('files', meta)) ?? []
+  if (head === lastHead) files = (await meta.get<RemoteFile[]>('files')) ?? []
   else {
     readBudget.spend(2)
     const listed = await gh.listFiles(head)
@@ -387,7 +386,7 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
   if (freshWorkspace.length) {
     setBusy()
     await applyFiles(WORKSPACE_DOC, freshWorkspace, await downloadAll(gh, freshWorkspace))
-    await set('applied', [...applied], meta)
+    await meta.set('applied', [...applied])
   }
   // pages: only those still in the page list (which may have just changed);
   // files of deleted pages are cleaned up below.
@@ -423,7 +422,7 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
       i += p.files.length
     }
     // remembered at once: an interruption later in this round does not undo it
-    await set('applied', [...applied], meta)
+    await meta.set('applied', [...applied])
   }
   const rest = waiting.slice(batch.length)
   waitingPages = new Set(rest.map((p) => p.id))
@@ -568,7 +567,7 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
     const committed = await gh.commit(head, msg, add, [...new Set(remove)], baseTree)
     if (!committed) {
       // someone else pushed first: start over (our documents are still marked)
-      await set('applied', [...applied], meta)
+      await meta.set('applied', [...applied])
       return false
     }
     for (const fn of afterCommit) await fn()
@@ -589,10 +588,10 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
 }
 
 async function saveRound(head: string, files: RemoteFile[], applied: Set<string>, tree: string | undefined) {
-  await set('head', head, meta)
-  await set('files', files, meta)
-  await set('applied', [...applied], meta)
-  await set('tree', tree ? { head, tree } : undefined, meta)
+  await meta.set('head', head)
+  await meta.set('files', files)
+  await meta.set('applied', [...applied])
+  await meta.set('tree', tree ? { head, tree } : undefined)
 }
 
 /** Only clean up deleted pages once this device has taken in every page-list file. */
@@ -645,12 +644,7 @@ async function markUnuploaded(): Promise<number> {
 async function applyToLocal(docId: string, updates: Uint8Array[]) {
   const apply = (doc: Y.Doc) => doc.transact(() => updates.forEach((u) => Y.applyUpdate(doc, u, REMOTE)), REMOTE)
   if (docId === WORKSPACE_DOC || peekOpenPage(docId)) return apply(await loadDoc(docId))
-  const doc = new Y.Doc()
-  const p = new IndexeddbPersistence(pageDbNameOf(docId), doc)
-  await p.whenSynced
-  apply(doc)
-  await p.destroy() // waits for the writes to finish
-  doc.destroy()
+  await withStoredPage(docId, apply) // written to storage, not kept in memory
   forgetPageText(docId)
   // opened in the meantime: it may have loaded from storage before the write
   const open = peekOpenPage(docId)
@@ -663,20 +657,7 @@ async function applyToLocal(docId: string, updates: Uint8Array[]) {
 /** This device's copy of a document; pages that are not open are loaded only for the moment. */
 async function withLocalDoc<T>(docId: string, fn: (doc: Y.Doc) => T): Promise<T> {
   if (docId === WORKSPACE_DOC) return fn(workspaceDoc)
-  const open = peekOpenPage(docId)
-  if (open) {
-    await open.ready
-    return fn(open.doc)
-  }
-  const doc = new Y.Doc()
-  const p = new IndexeddbPersistence(pageDbNameOf(docId), doc)
-  await p.whenSynced
-  try {
-    return fn(doc)
-  } finally {
-    await p.destroy()
-    doc.destroy()
-  }
+  return withStoredPage(docId, fn)
 }
 
 function deviceLabel() {
@@ -697,7 +678,7 @@ interface Shadow {
 
 async function openShadowDoc(docId: string): Promise<Shadow> {
   const doc = new Y.Doc()
-  const p = new IndexeddbPersistence(`inkpad:shadow:${docId}`, doc)
+  const p = backend.persistDoc(`shadow:${docId}`, doc)
   await p.whenSynced
   return {
     doc,

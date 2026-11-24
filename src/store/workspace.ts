@@ -1,8 +1,8 @@
 import * as Y from 'yjs'
-import { IndexeddbPersistence } from 'y-indexeddb'
 import { nanoid } from 'nanoid'
 import { lastPaper } from '../paper'
 import type { CanvasElement, FolderMeta, NotebookMeta, PageKind, PageMeta, SectionMeta } from './types'
+import { backend, type DocPersistence } from './backend'
 
 /** Transaction origin for user edits that should be undoable. */
 export const LOCAL = 'local'
@@ -63,7 +63,7 @@ export function onDirtyChange(fn: () => void) {
 // ---------- workspace: the list of pages ----------
 
 export const workspaceDoc = new Y.Doc()
-const workspacePersistence = new IndexeddbPersistence('inkpad:workspace', workspaceDoc)
+const workspacePersistence = backend.persistDoc('workspace', workspaceDoc)
 export const pagesMap = workspaceDoc.getMap<PageMeta>('pages')
 export const notebooksMap = workspaceDoc.getMap<NotebookMeta>('notebooks')
 export const sectionsMap = workspaceDoc.getMap<SectionMeta>('sections')
@@ -128,7 +128,7 @@ async function deletePageData(id: string) {
     open.doc.destroy()
   } else {
     const doc = new Y.Doc()
-    const p = new IndexeddbPersistence(pageDbName(id), doc)
+    const p = backend.persistDoc(`page:${id}`, doc)
     await p.whenSynced
     await p.clearData()
     doc.destroy()
@@ -147,21 +147,40 @@ export interface OpenPage {
   doc: Y.Doc
   elements: Y.Map<CanvasElement>
   undo: Y.UndoManager
-  persistence: IndexeddbPersistence
+  persistence: DocPersistence
   ready: Promise<void>
 }
 
 const openPages = new Map<string, OpenPage>()
 /** the page document if it is already loaded (does not load it) */
 export const peekOpenPage = (id: string) => openPages.get(id)
-export const pageDbNameOf = (id: string) => `inkpad:page:${id}`
-const pageDbName = (id: string) => `inkpad:page:${id}`
+
+/**
+ * Runs `fn` on a page's contents: the open copy if the page is open, otherwise
+ * a copy loaded from storage only for the moment (changes made to it are stored).
+ */
+export async function withStoredPage<T>(id: string, fn: (doc: Y.Doc) => T | Promise<T>): Promise<T> {
+  const open = openPages.get(id)
+  if (open) {
+    await open.ready
+    return fn(open.doc)
+  }
+  const doc = new Y.Doc()
+  const p = backend.persistDoc(`page:${id}`, doc)
+  await p.whenSynced
+  try {
+    return await fn(doc)
+  } finally {
+    await p.destroy() // waits for any changes to be written
+    doc.destroy()
+  }
+}
 
 export function openPage(id: string): OpenPage {
   let page = openPages.get(id)
   if (page) return page
   const doc = new Y.Doc()
-  const persistence = new IndexeddbPersistence(pageDbName(id), doc)
+  const persistence = backend.persistDoc(`page:${id}`, doc)
   const elements = doc.getMap<CanvasElement>('elements')
   // Undo steps are grouped explicitly (stopCapturing() starts a new step), not by time:
   // fast handwriting would otherwise merge many strokes into one undo.
