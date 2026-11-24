@@ -61,6 +61,79 @@ export function elementInRect(el: CanvasElement, rect: Rect, textHeights: Map<st
   return pointInRect(b.x + b.w / 2, b.y + b.h / 2, rect)
 }
 
+/** Smallest rectangle holding all the elements, or null if there are none. */
+export function unionBounds(els: CanvasElement[], textHeights: Map<string, number>): Rect | null {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const el of els) {
+    const b = elementBounds(el, textHeights)
+    x0 = Math.min(x0, b.x)
+    y0 = Math.min(y0, b.y)
+    x1 = Math.max(x1, b.x + b.w)
+    y1 = Math.max(y1, b.y + b.h)
+  }
+  return x0 === Infinity ? null : { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+export const rectsOverlap = (a: Rect, b: Rect) => a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h
+
+/** Bounding box of a flat [x, y, x, y, …] polygon. */
+export function polygonBounds(poly: number[]): Rect {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (let i = 0; i < poly.length; i += 2) {
+    x0 = Math.min(x0, poly[i])
+    y0 = Math.min(y0, poly[i + 1])
+    x1 = Math.max(x1, poly[i])
+    y1 = Math.max(y1, poly[i + 1])
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+/** Area enclosed by a flat [x, y, …] polygon (closed automatically). */
+export function polygonArea(poly: number[]): number {
+  let a = 0
+  const n = poly.length
+  for (let i = 0; i < n; i += 2) {
+    const j = (i + 2) % n
+    a += poly[i] * poly[j + 1] - poly[j] * poly[i + 1]
+  }
+  return Math.abs(a) / 2
+}
+
+/**
+ * A lasso that encloses almost nothing (a straight or slightly bent drag) is
+ * meant as a rectangle from corner to corner.
+ */
+export function lassoIsRect(poly: number[]): boolean {
+  if (poly.length < 6) return true
+  const b = polygonBounds(poly)
+  return polygonArea(poly) < 0.2 * b.w * b.h
+}
+
+export function pointInPolygon(px: number, py: number, poly: number[]): boolean {
+  let inside = false
+  const n = poly.length
+  for (let i = 0, j = n - 2; i < n; j = i, i += 2) {
+    const xi = poly[i], yi = poly[i + 1], xj = poly[j], yj = poly[j + 1]
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
+
+/** Elements chosen by a lasso: strokes with at least half their points inside, boxes whose centre is inside. */
+export function elementInLasso(el: CanvasElement, poly: number[], polyBox: Rect, textHeights: Map<string, number>): boolean {
+  const b = elementBounds(el, textHeights)
+  if (!rectsOverlap(b, polyBox)) return false
+  if (el.type === 'stroke') {
+    const n = el.points.length / 3
+    let inside = 0
+    for (let i = 0; i < el.points.length; i += 3) {
+      if (pointInPolygon(el.points[i] + el.dx, el.points[i + 1] + el.dy, poly)) inside++
+    }
+    return inside * 2 >= n
+  }
+  return pointInPolygon(b.x + b.w / 2, b.y + b.h / 2, poly)
+}
+
 /** Normalises a rectangle drawn from (x0,y0) to (x1,y1) in any direction. */
 export function rectFromPoints(x0: number, y0: number, x1: number, y1: number): Rect {
   return { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) }

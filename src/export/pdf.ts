@@ -25,6 +25,7 @@ import { INK } from '../theme'
 import { PATTERN_GAP, paperLight, paperOf } from '../paper'
 import { renderMarkdown } from '../markdown/render'
 import { exportPages, type ExportNode, type ExportRequest } from './plan'
+import { TB, layoutText, type TextLayout } from './text'
 
 export interface Progress {
   done: number
@@ -97,50 +98,6 @@ function colour(hex: string) {
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255)
 }
 
-const fontFamily = () => getComputedStyle(document.documentElement).fontFamily || 'system-ui, sans-serif'
-
-/** Breaks text into lines the way a text box does: at spaces, and between any two CJK characters. */
-function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-  const lines: string[] = []
-  for (const para of text.split('\n')) {
-    const tokens = para.match(/[⺀-鿿가-힯豈-﫿＀-￯]|[^\s⺀-鿿가-힯豈-﫿＀-￯]+\s*|\s+/g) ?? ['']
-    let line = ''
-    for (const tok of tokens) {
-      if (ctx.measureText(line + tok).width <= maxWidth || !line) {
-        if (ctx.measureText(tok).width > maxWidth && !line) {
-          // one word wider than the box: break it anywhere
-          for (const ch of tok) {
-            if (line && ctx.measureText(line + ch).width > maxWidth) {
-              lines.push(line)
-              line = ''
-            }
-            line += ch
-          }
-        } else line += tok
-      } else {
-        lines.push(line.trimEnd())
-        line = tok.trimStart()
-      }
-    }
-    lines.push(line.trimEnd())
-  }
-  return lines
-}
-
-interface TextLayout {
-  lines: string[]
-  lineHeight: number
-  font: string
-}
-
-const measureCtx = document.createElement('canvas').getContext('2d')!
-
-function layoutText(text: string, fontSize: number, width: number, bold = false): TextLayout {
-  const font = `${bold ? '700 ' : ''}${fontSize}px ${fontFamily()}`
-  measureCtx.font = font
-  return { lines: wrapLines(measureCtx, text, width), lineHeight: fontSize * 1.5, font }
-}
-
 /** Draws laid-out text into a transparent PNG; scale = image pixels per world pixel. */
 async function textPng(layout: TextLayout, width: number, colourHex: string, scale: number): Promise<Uint8Array> {
   const height = layout.lines.length * layout.lineHeight
@@ -180,9 +137,6 @@ function titleHeight(title: string, pageWidth: number): number {
 }
 
 // ---------- handwriting pages ----------
-
-/** text box geometry, matching the editor: 10px grab bar, 1px border, 4px/6px padding */
-const TB = { top: 10 + 1 + 4, left: 1 + 6, extra: 10 + 2 + 8, sides: 14 }
 
 async function addCanvas(pdf: PDFDocument, meta: PageMeta, elements: CanvasElement[]) {
   const sorted = [...elements].sort((a, b) => a.z - b.z)

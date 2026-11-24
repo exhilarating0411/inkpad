@@ -5,13 +5,14 @@ A small OneNote-style notes app that runs in the browser and installs as an app 
 ## Features (phase 1)
 
 - Free canvas pages: scroll and zoom anywhere
-- **Pen** and **highlighter**; the pen writes like a gel pen (even width, no pressure variation) and is drawn slightly ahead of the pencil tip to feel more direct
+- **Pen** and **highlighter**; the pen writes like a gel pen (even width, no pressure variation) and is drawn slightly ahead of the pencil tip to feel more direct. Lines stay round even when the device sends pen positions less often (gaps are filled along a curve), and sync waits for a pause in writing before doing its heavier work
 - **Palm rejection**: once a pen is used, fingers scroll and pinch instead of drawing (toggle with the ✋ button)
 - **Double-tap with a finger** to switch pen ⇄ eraser (Safari doesn't let web apps see the Apple Pencil's own double-tap)
 - **Text boxes**: pick the **T** tool and click anywhere to type. Drag the grey bar on top to move a box. Pick a colour and size (small, medium or large) for each box.
 - **Images**: paste (Ctrl/⌘+V or the clipboard button), insert from file or photos, or drag and drop. Move and resize them freely.
-  The paste button opens a "Paste here" box when the browser can't read the clipboard directly (e.g. Safari over plain http): tap it and choose Paste.
-- Select tool: click, or drag a rectangle to select. Move, delete, or resize with the round handle.
+  The paste button reads the clipboard directly (Safari shows a small **Paste** bubble to tap). Only if that is refused, it opens a "Paste here" box: tap it and choose Paste.
+- **Select tool**: draw a loop around handwriting to select it (a lasso; a straight drag selects a rectangle instead), or tap a line, picture or text box. Drag inside the selection to move it; resize pictures and text boxes with the round handle.
+- **Copy, cut, paste, duplicate**: the bar above a selection (Copy · Cut · Duplicate · Delete), or Ctrl/⌘+C, X, V, D. Pasting into this app gives real ink again (also on another page, or another Apple device through Universal Clipboard); pasting into other apps (chat, Word, Notes…) gives a picture of the selection, plus any typed text.
 - Undo and redo, multiple pages, and everything is saved on the device (IndexedDB), so it works offline
 - **Paper**: the page button in the toolbar sets each handwriting page's colour (white, cream, yellow, green, blue, purple, pink, gray) and pattern (plain, dots, grid or lines). New pages use the paper picked last. PDF export keeps it.
 - **Light / Dark / Auto** theme (the ◐ button, top right). Black ink and text turn white on dark paper; printing is always light.
@@ -78,6 +79,8 @@ npm run build    # production build in dist/
 |---|---|
 | V / P / H / E / T | Select / Pen / Highlighter / Eraser / Text |
 | Ctrl/⌘+Z, Ctrl/⌘+Shift+Z | Undo / Redo |
+| Ctrl/⌘+C, X, V, D | Copy / Cut / Paste / Duplicate |
+| Arrow keys (Shift: 10×) | Nudge the selection |
 | Delete | Delete selection |
 | Space + drag, middle mouse, wheel | Scroll |
 | Ctrl/⌘ + wheel, trackpad pinch | Zoom |

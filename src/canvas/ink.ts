@@ -24,8 +24,68 @@ export function toTriples(flat: number[]): number[][] {
   return out
 }
 
+/** gaps between recorded points longer than this (world px) are filled in along a curve */
+const CURVE_STEP = 2
+
+/**
+ * The recorded points with the gaps filled in along a smooth curve
+ * (centripetal Catmull-Rom, which passes through every recorded point and
+ * does not overshoot on sharp turns).
+ *
+ * When the device is busy (or the browser sends fewer pen events, e.g. while
+ * syncing), points arrive farther apart; joined by straight lines a curve then
+ * looks slightly jagged. Filling the gaps keeps it round.
+ */
+export function smoothTriples(flat: number[]): number[][] {
+  const n = flat.length / 3
+  if (n < 3) return toTriples(flat)
+  const at = (i: number): number[] => {
+    // beyond the ends: continue the first / last segment in a straight line
+    if (i < 0) return [2 * flat[0] - flat[3], 2 * flat[1] - flat[4], flat[2]]
+    if (i >= n) {
+      const a = (n - 1) * 3
+      const b = (n - 2) * 3
+      return [2 * flat[a] - flat[b], 2 * flat[a + 1] - flat[b + 1], flat[a + 2]]
+    }
+    return [flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2]]
+  }
+  const out: number[][] = []
+  for (let i = 0; i < n - 1; i++) {
+    const p1 = at(i)
+    const p2 = at(i + 1)
+    out.push(p1)
+    const len = Math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+    const steps = Math.min(24, Math.floor(len / CURVE_STEP))
+    if (steps < 2) continue
+    const p0 = at(i - 1)
+    const p3 = at(i + 2)
+    // knot spacing: square root of the distance (centripetal)
+    const k = (a: number[], b: number[]) => Math.max(1e-4, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1])))
+    const t0 = 0
+    const t1 = t0 + k(p0, p1)
+    const t2 = t1 + k(p1, p2)
+    const t3 = t2 + k(p2, p3)
+    for (let s = 1; s < steps; s++) {
+      const t = t1 + ((t2 - t1) * s) / steps
+      const mix = (a: number[], b: number[], ta: number, tb: number) => {
+        const u = (t - ta) / (tb - ta)
+        return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]
+      }
+      const a1 = mix(p0, p1, t0, t1)
+      const a2 = mix(p1, p2, t1, t2)
+      const a3 = mix(p2, p3, t2, t3)
+      const b1 = mix(a1, a2, t0, t2)
+      const b2 = mix(a2, a3, t1, t3)
+      const c = mix(b1, b2, t1, t2)
+      out.push([c[0], c[1], p1[2] + ((p2[2] - p1[2]) * s) / steps])
+    }
+  }
+  out.push(at(n - 1))
+  return out
+}
+
 export function strokePath(flat: number[], opts: ReturnType<typeof strokeOptions>): string {
-  return outlineToPath(getStroke(toTriples(flat), opts))
+  return outlineToPath(getStroke(smoothTriples(flat), opts))
 }
 
 /** Converts perfect-freehand's outline polygon into a smooth SVG path. */
@@ -51,7 +111,7 @@ function outlineToPath(points: number[][]): string {
  * reader does not handle chained T commands.
  */
 export function strokePathExplicit(flat: number[], opts: ReturnType<typeof strokeOptions>): string {
-  const points = getStroke(toTriples(flat), opts)
+  const points = getStroke(smoothTriples(flat), opts)
   const len = points.length
   if (len < 4) return ''
   const f = (n: number) => n.toFixed(2)

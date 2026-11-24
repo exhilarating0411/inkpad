@@ -428,6 +428,61 @@ button {
   pointer-events: none;
 }
 
+.lasso {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.lasso polygon {
+  fill: rgb(123 79 214 / 0.07);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  stroke-linejoin: round;
+}
+
+/* copy / cut / duplicate / delete above the selection */
+.sel-actions {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.18), 0 0 0 1px var(--line);
+  white-space: nowrap;
+}
+
+.sel-actions button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.sel-actions button:hover {
+  background: var(--hover);
+}
+
+.sel-actions svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 560px) {
+  .sel-actions button span {
+    display: none;
+  }
+}
+
 .toast {
   position: absolute;
   left: 50%;

@@ -4,10 +4,25 @@ import type { CanvasElement, ImageElement, StrokeElement, TextElement, Tool, Vie
 import { LOCAL, TYPING, openPage } from '../store/workspace'
 import { storeImage } from '../store/images'
 import { PREDICT_MS, computeBBox, strokeOptions, strokePath } from './ink'
-import { elementBounds, elementInRect, pointInRect, rectFromPoints, strokeHit, type Rect } from './geometry'
+import {
+  elementBounds,
+  elementInLasso,
+  elementInRect,
+  lassoIsRect,
+  pointInRect,
+  polygonBounds,
+  rectFromPoints,
+  rectsOverlap,
+  strokeHit,
+  unionBounds,
+  type Rect,
+} from './geometry'
 import { ImageView, StrokePath, TextBox } from './ElementViews'
 import { inkColor } from '../theme'
 import { PATTERN_GAP, paperCss, patternImage, type Paper } from '../paper'
+import { clipFromHtml, cloneElements, copyElements, lastClip, type Clip } from './clipboard'
+import { noteInk } from '../store/activity'
+import { Icons } from '../components/icons'
 
 export interface CanvasApi {
   undo(): void
@@ -70,7 +85,8 @@ type Gesture =
   | { kind: 'pinch'; ids: [number, number]; startDist: number; startScale: number; worldX: number; worldY: number }
   | { kind: 'move'; pointerId: number; startX: number; startY: number }
   | { kind: 'resize'; pointerId: number; id: string; startX: number; startW: number; ratio: number; isImage: boolean }
-  | { kind: 'band'; pointerId: number; sx: number; sy: number }
+  /** select by drawing around things (screen points); a tap on `hit` selects just that stroke */
+  | { kind: 'lasso'; pointerId: number; pts: number[]; hit?: string; additive: boolean }
 
 const MIN_SCALE = 0.1
 const MAX_SCALE = 8
@@ -136,7 +152,10 @@ export default function Canvas(props: Props) {
 
   const [drag, setDrag] = useState<{ dx: number; dy: number } | null>(null)
   const [resize, setResize] = useState<{ id: string; w: number; h: number } | null>(null)
-  const [band, setBand] = useState<Rect | null>(null)
+  /** the lasso being drawn (screen coordinates); shown as a rectangle when it encloses almost nothing */
+  const [lasso, setLasso] = useState<{ pts: number[]; rect: boolean } | null>(null)
+  /** how often each clip was pasted here, so repeated pastes do not land on top of each other */
+  const pasteCount = useRef(new Map<string, number>())
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const gesture = useRef<Gesture | null>(null)
@@ -327,6 +346,11 @@ export default function Canvas(props: Props) {
 
   /** Handles whatever was pasted: images first (a copied web image also carries its URL as text). */
   const handlePasteData = (data: DataTransfer): boolean => {
+    const clip = clipFromHtml(data.getData('text/html'))
+    if (clip) {
+      pasteClip(clip)
+      return true
+    }
     const files: File[] = []
     for (const item of data.items) {
       if (item.kind === 'file' && item.type.startsWith('image/')) {
@@ -345,7 +369,15 @@ export default function Canvas(props: Props) {
       createText(c.x - 180, c.y, text)
       return true
     }
-    return false
+    return pasteLocalClip()
+  }
+
+  /** What was copied here when the system clipboard could not take it. */
+  const pasteLocalClip = () => {
+    const clip = lastClip()
+    if (!clip || clip.system) return false
+    pasteClip(clip)
+    return true
   }
 
   const pasteFromClipboard = async () => {
@@ -357,6 +389,12 @@ export default function Canvas(props: Props) {
     }
     try {
       const items = await navigator.clipboard.read()
+      // copied in this app: paste the real ink, not its picture
+      for (const item of items) {
+        if (!item.types.includes('text/html')) continue
+        const clip = clipFromHtml(await (await item.getType('text/html')).text())
+        if (clip) return pasteClip(clip)
+      }
       const images: Blob[] = []
       let text = ''
       for (const item of items) {
@@ -368,11 +406,73 @@ export default function Canvas(props: Props) {
       else if (text.trim()) {
         const c = viewportCenterWorld()
         createText(c.x - 180, c.y, text)
-      } else alert('The clipboard is empty.')
+      } else if (!pasteLocalClip()) alert('The clipboard is empty.')
     } catch (err) {
+      // refused (e.g. the Paste bubble was dismissed): the device's own copy, or the paste box
       console.warn(err)
-      setPasteSheet(true)
+      if (!pasteLocalClip()) setPasteSheet(true)
     }
+  }
+
+  // ---------- copy, cut, paste, duplicate ----------
+  const selectedElements = () => elementsRef.current.filter((el) => selectionRef.current.has(el.id))
+
+  const addElements = (els: CanvasElement[]) => {
+    if (!els.length) return
+    transact(() => {
+      for (const el of els) page.elements.set(el.id, el)
+    })
+    propsRef.current.onToolChange('select')
+    setSelection(new Set(els.map((el) => el.id)))
+  }
+
+  /** Copies the selection; returns false if nothing is selected. */
+  const copySelection = (): boolean => {
+    const els = selectedElements()
+    const bounds = unionBounds(els, textHeights.current)
+    if (!bounds) return false
+    void copyElements(pageId, els, bounds)
+    setToast({ text: 'Copied', key: performance.now() })
+    return true
+  }
+
+  const cutSelection = () => {
+    const els = selectedElements()
+    if (!copySelection()) return
+    // pasting a cut puts it back where it was
+    const clip = lastClip()
+    if (clip) pasteCount.current.set(clip.id, -1)
+    deleteIds(els.map((el) => el.id))
+    setToast({ text: 'Cut', key: performance.now() })
+  }
+
+  /** Visible part of the page in world coordinates. */
+  const viewRect = (): Rect => {
+    const r = rootRef.current!.getBoundingClientRect()
+    const v = vpRef.current
+    return { x: -v.x / v.scale, y: -v.y / v.scale, w: r.width / v.scale, h: r.height / v.scale }
+  }
+
+  /** Pastes next to the original if it is on screen, otherwise in the middle of the screen. */
+  const pasteClip = (clip: Clip) => {
+    const b = clip.bounds
+    let dx: number
+    let dy: number
+    if (clip.page === pageId && rectsOverlap(b, viewRect())) {
+      const n = (pasteCount.current.get(clip.id) ?? 0) + 1
+      pasteCount.current.set(clip.id, n)
+      dx = dy = (24 / vpRef.current.scale) * n
+    } else {
+      const c = viewportCenterWorld()
+      dx = c.x - (b.x + b.w / 2)
+      dy = c.y - (b.y + b.h / 2)
+    }
+    addElements(cloneElements(clip.elements, dx, dy))
+  }
+
+  const duplicateSelection = () => {
+    const off = 24 / vpRef.current.scale
+    addElements(cloneElements(selectedElements(), off, off))
   }
 
   const styleText = (patch: { color?: string; fontSize?: number }) => {
@@ -461,6 +561,7 @@ export default function Canvas(props: Props) {
     if (gesture.current?.kind === 'draw') {
       gesture.current = null
       livePathRef.current?.setAttribute('d', '')
+      noteInk(false)
     }
   }
 
@@ -469,6 +570,7 @@ export default function Canvas(props: Props) {
     const target = e.target as HTMLElement
     const editingText = target.closest('[data-textedit]') && (tool === 'select' || tool === 'text')
     if (editingText) return // let the textarea handle it
+    if (target.closest('.sel-actions')) return // copy / cut / … buttons above the selection
 
     const active = document.activeElement
     if (isTextInput(active) && active !== target) (active as HTMLElement).blur()
@@ -501,7 +603,7 @@ export default function Canvas(props: Props) {
           worldY: w.y,
         }
         setDrag(null)
-        setBand(null)
+        setLasso(null)
         return
       }
     }
@@ -566,11 +668,13 @@ export default function Canvas(props: Props) {
         const path = livePathRef.current!
         path.style.fill = inkColor(hl ? ink.hlColor : ink.penColor)
         path.setAttribute('opacity', hl ? '0.35' : '1')
+        noteInk(true)
         scheduleLive()
         return
       }
       case 'eraser':
         if (fingerPans) return startPan('eraser-toggle')
+        noteInk(true)
         gesture.current = { kind: 'erase', pointerId: e.pointerId }
         page.undo.stopCapturing()
         eraseAt(w.x, w.y)
@@ -580,10 +684,19 @@ export default function Canvas(props: Props) {
         createText(w.x, w.y)
         return
       case 'select': {
+        const sel = selectionRef.current
+        const additive = e.shiftKey || e.metaKey || e.ctrlKey
+        // inside what is selected: drag it
+        const selBox = unionBounds(selectedElements(), textHeights.current)
+        const pad = 8 / vpRef.current.scale
+        if (!additive && selBox && pointInRect(w.x, w.y, { x: selBox.x - pad, y: selBox.y - pad, w: selBox.w + 2 * pad, h: selBox.h + 2 * pad })) {
+          gesture.current = { kind: 'move', pointerId: e.pointerId, startX: w.x, startY: w.y }
+          return
+        }
         const hit = hitTest(w.x, w.y)
-        if (hit) {
-          const sel = selectionRef.current
-          if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        // a picture or text box: select and drag it straight away
+        if (hit && hit.type !== 'stroke') {
+          if (additive) {
             const next = new Set(sel)
             if (next.has(hit.id)) next.delete(hit.id)
             else next.add(hit.id)
@@ -592,9 +705,11 @@ export default function Canvas(props: Props) {
           gesture.current = { kind: 'move', pointerId: e.pointerId, startX: w.x, startY: w.y }
           return
         }
-        if (touch) return startPan('clear')
-        if (!e.shiftKey) setSelection(new Set())
-        gesture.current = { kind: 'band', pointerId: e.pointerId, sx: s.x, sy: s.y }
+        // fingers scroll when a pen does the selecting
+        if (fingerPans) return startPan('clear')
+        // otherwise draw around what to select; starting on a line is fine (a tap selects that line)
+        if (!additive) setSelection(new Set())
+        gesture.current = { kind: 'lasso', pointerId: e.pointerId, pts: [s.x, s.y], hit: hit?.id, additive }
         return
       }
     }
@@ -637,11 +752,13 @@ export default function Canvas(props: Props) {
           g.points.push(x, y, pressure)
           g.times.push(ev.timeStamp)
         }
+        noteInk(true)
         scheduleLive()
         return
       }
       case 'erase': {
         const w = toWorld(s.x, s.y)
+        noteInk(true)
         eraseAt(w.x, w.y)
         return
       }
@@ -664,9 +781,13 @@ export default function Canvas(props: Props) {
         setResize({ id: g.id, w: newW, h: newW * g.ratio })
         return
       }
-      case 'band':
-        setBand(rectFromPoints(g.sx, g.sy, s.x, s.y))
+      case 'lasso': {
+        const n = g.pts.length
+        if (Math.hypot(s.x - g.pts[n - 2], s.y - g.pts[n - 1]) < 3) return
+        g.pts.push(s.x, s.y)
+        setLasso({ pts: [...g.pts], rect: lassoIsRect(g.pts) })
         return
+      }
     }
   }
 
@@ -682,6 +803,7 @@ export default function Canvas(props: Props) {
     }
     if (e.pointerId !== g.pointerId) return
     gesture.current = null
+    if (g.kind === 'draw' || g.kind === 'erase') noteInk(false)
 
     switch (g.kind) {
       case 'draw': {
@@ -725,15 +847,35 @@ export default function Canvas(props: Props) {
         transact(() => page.elements.set(g.id, el.type === 'image' ? { ...el, w: newW, h: newW * g.ratio } : { ...el, w: newW }))
         return
       }
-      case 'band': {
-        setBand(null)
+      case 'lasso': {
+        setLasso(null)
+        if (cancelled) return
         const s = toScreen(e)
-        const r = rectFromPoints(g.sx, g.sy, s.x, s.y)
-        if (r.w < 3 && r.h < 3) return
-        const a = toWorld(r.x, r.y)
-        const wr = { x: a.x, y: a.y, w: r.w / vpRef.current.scale, h: r.h / vpRef.current.scale }
-        const picked = elementsRef.current.filter((el) => elementInRect(el, wr, textHeights.current)).map((el) => el.id)
-        setSelection(new Set([...(e.shiftKey ? selectionRef.current : []), ...picked]))
+        const pts = [...g.pts, s.x, s.y]
+        const box = polygonBounds(pts)
+        const keep = g.additive ? [...selectionRef.current] : []
+        if (box.w < 6 && box.h < 6) {
+          // a tap: select the line under the pen, if any
+          if (!g.hit) return
+          const next = new Set(keep)
+          if (g.additive && next.has(g.hit)) next.delete(g.hit)
+          else next.add(g.hit)
+          setSelection(next)
+          return
+        }
+        const v = vpRef.current
+        const worldPts = pts.map((n, i) => (i % 2 === 0 ? (n - v.x) / v.scale : (n - v.y) / v.scale))
+        let picked: CanvasElement[]
+        if (lassoIsRect(pts)) {
+          const r = rectFromPoints(pts[0], pts[1], s.x, s.y)
+          const a = toWorld(r.x, r.y)
+          const wr = { x: a.x, y: a.y, w: r.w / v.scale, h: r.h / v.scale }
+          picked = elementsRef.current.filter((el) => elementInRect(el, wr, textHeights.current))
+        } else {
+          const wbox = polygonBounds(worldPts)
+          picked = elementsRef.current.filter((el) => elementInLasso(el, worldPts, wbox, textHeights.current))
+        }
+        setSelection(new Set([...keep, ...picked.map((el) => el.id)]))
         return
       }
       case 'pan':
@@ -766,7 +908,7 @@ export default function Canvas(props: Props) {
     }
     // iOS: stop page scrolling, text selection loupes and Scribble on the canvas.
     const stopTouch = (e: TouchEvent) => {
-      if (!(e.target as Element).closest('[data-textedit]')) e.preventDefault()
+      if (!(e.target as Element).closest('[data-textedit], .sel-actions')) e.preventDefault()
     }
     const stopGesture = (e: Event) => e.preventDefault()
     root.addEventListener('wheel', onWheel, { passive: false })
@@ -804,6 +946,19 @@ export default function Canvas(props: Props) {
         e.preventDefault()
         propsRef.current.onToolChange('select')
         setSelection(new Set(elementsRef.current.map((el) => el.id)))
+      } else if (mod && (k === 'c' || k === 'x' || k === 'd') && !e.shiftKey && !e.altKey) {
+        // with nothing selected, leave the browser's own copy alone
+        if (!selectionRef.current.size) return
+        e.preventDefault()
+        if (k === 'c') copySelection()
+        else if (k === 'x') cutSelection()
+        else duplicateSelection()
+      } else if (e.key.startsWith('Arrow') && !mod && selectionRef.current.size) {
+        e.preventDefault()
+        const step = (e.shiftKey ? 10 : 1) / vpRef.current.scale
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0
+        commitDrag(dx, dy)
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectionRef.current.size) {
           e.preventDefault()
@@ -822,9 +977,10 @@ export default function Canvas(props: Props) {
     const onPaste = (e: ClipboardEvent) => {
       const data = e.clipboardData
       if (!data || e.defaultPrevented) return
-      // Inside a text box, plain text pastes into the box as usual.
+      // Inside a text box, text pastes into the box as usual (also when it was copied here).
+      const ours = !!clipFromHtml(data.getData('text/html'))
       const hasImage = [...data.items].some((i) => i.kind === 'file' && i.type.startsWith('image/'))
-      if (!hasImage && isTextInput(document.activeElement)) return
+      if ((ours || !hasImage) && isTextInput(document.activeElement)) return
       if (handlePasteData(data)) e.preventDefault()
     }
     window.addEventListener('keydown', onKeyDown)
@@ -877,6 +1033,23 @@ export default function Canvas(props: Props) {
   const textEditable = tool === 'select' || tool === 'text'
   const gap = PATTERN_GAP[props.paper.pattern] * vp.scale
   const single = selection.size === 1 ? elements.find((e) => selection.has(e.id)) : undefined
+  const selected = selection.size ? elements.filter((e) => selection.has(e.id)) : []
+
+  // copy / cut / duplicate / delete, just above the selection (below it near the top edge)
+  let actions: { left: number; top: number } | null = null
+  const selBox = tool === 'select' && !drag && !resize && !lasso ? unionBounds(selected, textHeights.current) : null
+  if (selBox && rootRef.current) {
+    const W = rootRef.current.clientWidth
+    const H = rootRef.current.clientHeight
+    const left = selBox.x * vp.scale + vp.x + (selBox.w * vp.scale) / 2
+    const top = selBox.y * vp.scale + vp.y - 54
+    const below = (selBox.y + selBox.h) * vp.scale + vp.y + 14
+    const half = W > 560 ? 190 : 90 // half the bar's width (labels are hidden on narrow screens)
+    actions = {
+      left: Math.min(W - half, Math.max(half, left)),
+      top: top >= 8 ? top : Math.min(H - 52, Math.max(8, below)),
+    }
+  }
 
   return (
     <>
@@ -941,9 +1114,7 @@ export default function Canvas(props: Props) {
           })}
           <path ref={livePathRef} />
         </svg>
-        {elements
-          .filter((el) => selection.has(el.id))
-          .map((el) => {
+        {selected.map((el) => {
             let b = elementBounds(el, textHeights.current)
             const o = offsetFor(el.id)
             if (o) b = { ...b, x: b.x + o.dx, y: b.y + o.dy }
@@ -956,7 +1127,38 @@ export default function Canvas(props: Props) {
           return <div className="resize-handle" data-handle="resize" data-id={single.id} style={{ left: b.x + b.w, top: b.y + b.h }} />
         })()}
       </div>
-      {band && <div className="band" style={{ left: band.x, top: band.y, width: band.w, height: band.h }} />}
+      {lasso &&
+        (lasso.rect ? (
+          (() => {
+            const n = lasso.pts.length
+            const r = rectFromPoints(lasso.pts[0], lasso.pts[1], lasso.pts[n - 2], lasso.pts[n - 1])
+            return <div className="band" style={{ left: r.x, top: r.y, width: r.w, height: r.h }} />
+          })()
+        ) : (
+          <svg className="lasso" width="100%" height="100%">
+            <polygon points={lasso.pts.join(' ')} />
+          </svg>
+        ))}
+      {actions && (
+        <div className="sel-actions" style={{ left: actions.left, top: actions.top }} role="toolbar" aria-label="Selection">
+          <button onClick={() => copySelection()} title="Copy (Ctrl/⌘+C)">
+            {Icons.copy}
+            <span>Copy</span>
+          </button>
+          <button onClick={() => cutSelection()} title="Cut (Ctrl/⌘+X)">
+            {Icons.cut}
+            <span>Cut</span>
+          </button>
+          <button onClick={() => duplicateSelection()} title="Duplicate (Ctrl/⌘+D)">
+            {Icons.duplicate}
+            <span>Duplicate</span>
+          </button>
+          <button onClick={() => deleteIds(selectionRef.current)} title="Delete (Del)">
+            {Icons.trash}
+            <span>Delete</span>
+          </button>
+        </div>
+      )}
       {toast && (
         <div key={toast.key} className="toast">
           {toast.text}

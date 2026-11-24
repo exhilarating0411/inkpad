@@ -50,6 +50,7 @@ import {
   workspaceReady,
 } from '../store/workspace'
 import { clearPendingImage, getImageBlob, pendingImages, setRemoteImageFetcher } from '../store/images'
+import { whenInkIdle } from '../store/activity'
 
 export type SyncState =
   | { kind: 'off' }
@@ -221,6 +222,8 @@ async function syncOnce() {
     gh = new GitHub(cfg)
     ghFor = key
   }
+  // not while a line is being written: wait for a short pause (unless the app is being put away)
+  if (!flushRequested) await whenInkIdle()
   const flush = flushRequested
   flushRequested = false
   try {
@@ -321,6 +324,7 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
   }
   const freshOf = (docId: string) => (byDoc.get(docId) ?? []).filter((f) => !applied.has(f.path))
   const applyFiles = async (docId: string, newFiles: RemoteFile[], updates: Uint8Array[]) => {
+    await whenInkIdle(300, 5_000) // merging redraws the page: not in the middle of a line
     const doc = await loadDoc(docId)
     const shadow = await openShadow(docId)
     debug('apply', docId, newFiles.map((f) => f.path))
@@ -386,6 +390,7 @@ async function syncRoundInner(gh: GitHub, openShadow: (docId: string) => Promise
     return null
   }
 
+  await whenInkIdle(300, 5_000)
   const toCheck = new Set(dirtyDocs())
   for (const [docId, fs] of byDoc) if (fs.length >= COMPACT_AT) toCheck.add(docId)
   // check the page list first so new pages are known before their contents

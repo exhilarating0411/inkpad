@@ -55,6 +55,25 @@ export const Icons = {
       <path d="M9 11h6M9 15h4" />
     </Svg>
   ),
+  copy: (
+    <Svg>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" />
+    </Svg>
+  ),
+  cut: (
+    <Svg>
+      <circle cx="6.5" cy="17.5" r="2.5" />
+      <circle cx="17.5" cy="17.5" r="2.5" />
+      <path d="M8.5 16L18 4M15.5 16L6 4" />
+    </Svg>
+  ),
+  duplicate: (
+    <Svg>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2M14 11v6M11 14h6" />
+    </Svg>
+  ),
   undo: (
     <Svg>
       <path d="M9 14L4 9l5-5" />
