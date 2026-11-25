@@ -191,19 +191,76 @@ function watchNotes(win) {
 // ---------- updates (installed app only), from the GitHub releases of the app ----------
 
 let updateReady = null // version downloaded and waiting to be installed
+
+/** The updater's messages, in %AppData%\NeatNotes\logs\updater.log (kept short), to see why an update did not come. */
+function updateLog(level, message) {
+  try {
+    const file = path.join(app.getPath('userData'), 'logs', 'updater.log')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    if (fs.existsSync(file) && fs.statSync(file).size > 200_000) fs.renameSync(file, file + '.old')
+    const text = typeof message === 'string' ? message : message instanceof Error ? message.stack || message.message : JSON.stringify(message)
+    // the long block lists of partial downloads are left out
+    if (level === 'debug' && /^\s*[[{]/.test(text)) return
+    fs.appendFileSync(file, `${new Date().toISOString()} ${level} ${text}\n`)
+  } catch {
+    /* a log must never break the app */
+  }
+}
+
+const HOUR = 60 * 60 * 1000
 function setupUpdates(win) {
   if (!app.isPackaged) return
   const { autoUpdater } = require('electron-updater')
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true // installed the next time NeatNotes is closed, if not before
+  autoUpdater.disableWebInstaller = true
+  autoUpdater.logger = {
+    info: (m) => updateLog('info', m),
+    warn: (m) => updateLog('warn', m),
+    error: (m) => updateLog('error', m),
+    debug: (m) => updateLog('debug', m),
+  }
+
+  // Check 10 s after start, then every 6 hours. After a failure (network, GitHub), try again
+  // after 15 min, 30 min, 1 h, then every 2 h, instead of waiting 6 hours.
+  let timer = null
+  let failures = 0
+  let lastCheck = 0
+  let checking = false
+  const schedule = (ms) => {
+    clearTimeout(timer)
+    timer = setTimeout(check, ms)
+  }
+  async function check() {
+    if (updateReady || checking) return
+    checking = true
+    lastCheck = Date.now()
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      // a newer version is downloaded before the check counts as done
+      if (result && result.downloadPromise) await result.downloadPromise
+      failures = 0
+      schedule(6 * HOUR)
+    } catch (e) {
+      failures++
+      const wait = Math.min(2 * HOUR, 15 * 60 * 1000 * 2 ** (failures - 1))
+      updateLog('warn', `update failed (${failures}× in a row), trying again in ${Math.round(wait / 60000)} min: ${e && e.message}`)
+      schedule(wait)
+    } finally {
+      checking = false
+    }
+  }
   autoUpdater.on('update-downloaded', (info) => {
     updateReady = info.version
     if (!win.isDestroyed()) win.webContents.send('update:ready', info.version)
   })
-  autoUpdater.on('error', (e) => console.warn('NeatNotes: update check failed', e && e.message))
-  const check = () => autoUpdater.checkForUpdates().catch(() => {})
-  setTimeout(check, 10_000)
-  setInterval(check, 6 * 60 * 60 * 1000)
+  // (needed: an "error" event nobody listens to would stop the app)
+  autoUpdater.on('error', (e) => updateLog('error', e))
+  schedule(10_000)
+  // back on screen after a long time (e.g. the laptop slept): check again
+  win.on('focus', () => {
+    if (!updateReady && Date.now() - lastCheck > (failures ? 15 * 60 * 1000 : 6 * HOUR)) schedule(2_000)
+  })
   ipcMain.handle('update:install', async () => {
     if (!updateReady) return
     await flushPage(win)
