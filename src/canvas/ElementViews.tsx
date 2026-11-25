@@ -7,8 +7,23 @@ import type { Scale } from './geometry'
 
 // ---------- ink ----------
 
+/**
+ * Outlines already computed, by stroke points (the same array as long as the stroke's shape does
+ * not change, also after moving it). Opening a page again then draws it without computing every
+ * stroke again; outlines go when their stroke does.
+ */
+const outlines = new WeakMap<number[], Map<string, string>>()
+function outlineOf(el: StrokeElement): string {
+  const key = `${el.size}|${el.highlighter ? 1 : 0}|${el.pressure ? 1 : 0}`
+  let byStyle = outlines.get(el.points)
+  if (!byStyle) outlines.set(el.points, (byStyle = new Map()))
+  let d = byStyle.get(key)
+  if (d === undefined) byStyle.set(key, (d = strokePath(el.points, strokeOptions(el))))
+  return d
+}
+
 export const StrokePath = memo(function StrokePath({ el, ox = 0, oy = 0, scale }: { el: StrokeElement; ox?: number; oy?: number; scale?: Scale }) {
-  const d = useMemo(() => strokePath(el.points, strokeOptions(el)), [el.points, el.size, el.highlighter, el.pressure])
+  const d = outlineOf(el)
   const tx = el.dx + ox
   const ty = el.dy + oy
   // while being resized: shown scaled (line width included) until the new size is saved

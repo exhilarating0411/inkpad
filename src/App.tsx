@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import Canvas, { type CanvasApi, type CanvasContext, type InkSettings } from './canvas/Canvas'
-import Toolbar, { HL_COLORS, HL_SIZES, PEN_COLORS, PEN_SIZES, TEXT_SIZES } from './components/Toolbar'
+import Toolbar, { HL_COLORS, HL_SIZES, PEN_COLORS, TEXT_SIZES } from './components/Toolbar'
 import PageTree, { type TreeMode } from './components/PageTree'
 import TopBar from './components/TopBar'
 import ExportDialog from './components/ExportDialog'
@@ -20,7 +20,7 @@ import { paperOf, rememberPaper } from './paper'
 
 const DEFAULT_INK: InkSettings = {
   penColor: PEN_COLORS[0],
-  penSize: PEN_SIZES[1],
+  penSize: 4,
   hlColor: HL_COLORS[0],
   hlSize: HL_SIZES[1],
   textColor: PEN_COLORS[0],

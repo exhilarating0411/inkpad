@@ -127,6 +127,13 @@ function withPrediction(points: number[], times: number[], ms: number): number[]
   return [...points, points[last * 3] + dx, points[last * 3 + 1] + dy, points[last * 3 + 2]]
 }
 
+/**
+ * Size of the ink drawing area, centred on the origin (ink outside it still shows: overflow is
+ * visible; it only scrolls less smoothly). Measured in Chrome: up to 100 000 scrolling stays fast
+ * at every zoom, at 200 000 it is slow again.
+ */
+const INK_AREA = 100_000
+
 function isTextInput(el: Element | null) {
   return !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || (el as HTMLElement).isContentEditable)
 }
@@ -1136,13 +1143,8 @@ export default function Canvas(props: Props) {
     <div
       ref={rootRef}
       className={`canvas tool-${tool}`}
-      style={{
-        backgroundColor: paperCss(props.paper.color),
-        backgroundSize: `${gap}px ${gap}px`,
-        backgroundPosition: `${vp.x}px ${vp.y}px`,
-        // the pattern gets too dense to be useful when zoomed far out
-        backgroundImage: gap < 8 ? 'none' : patternImage(props.paper.pattern),
-      }}
+      // only the paper colour here: nothing on this element changes while scrolling (see .paper-pattern)
+      style={{ backgroundColor: paperCss(props.paper.color), backgroundImage: 'none' }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -1157,6 +1159,22 @@ export default function Canvas(props: Props) {
         void insertImages(files, toWorld(s.x, s.y))
       }}
     >
+      {/* The paper pattern on its own layer, one tile larger on each side, slid by less than a tile.
+          Scrolling then only moves layers and repaints nothing: a repaint makes the browser sort
+          every stroke of the page into layers again, which made scrolling stutter on full pages.
+          (The pattern gets too dense to be useful when zoomed far out.) */}
+      {gap >= 8 && patternImage(props.paper.pattern) !== 'none' && (
+        <div
+          className="paper-pattern"
+          style={{
+            width: `calc(100% + ${2 * gap}px)`,
+            height: `calc(100% + ${2 * gap}px)`,
+            backgroundImage: patternImage(props.paper.pattern),
+            backgroundSize: `${gap}px ${gap}px`,
+            transform: `translate(${(((vp.x % gap) + gap) % gap) - gap}px, ${(((vp.y % gap) + gap) % gap) - gap}px)`,
+          }}
+        />
+      )}
       {/* outer: only the change since the content was drawn (moved by the compositor, no redraw);
           inner: the zoom it was drawn at (part of the drawing, so ink is drawn sharp at that zoom) */}
       <div className="world" style={{ transform: `translate(${vp.x - rel * drawnAt.x}px, ${vp.y - rel * drawnAt.y}px) scale(${rel})` }}>
@@ -1197,12 +1215,17 @@ export default function Canvas(props: Props) {
             />
           )
         })}
-        <svg className="ink" width="1" height="1">
-          {strokes.map((el) => {
-            const o = offsetFor(el.id)
-            return <StrokePath key={el.id} el={el} ox={o?.dx} oy={o?.dy} scale={scaleFor(el.id)} />
-          })}
-          <path ref={livePathRef} />
+        {/* A large drawing area around the origin rather than a 1×1 one with the ink overflowing it:
+            with everything outside its box, Chrome sorted every stroke into layers again on each
+            scroll step (about 30 ms per frame on a page of 1500 strokes). Coordinates are unchanged. */}
+        <svg className="ink" width={INK_AREA} height={INK_AREA} style={{ left: -INK_AREA / 2, top: -INK_AREA / 2 }}>
+          <g transform={`translate(${INK_AREA / 2} ${INK_AREA / 2})`}>
+            {strokes.map((el) => {
+              const o = offsetFor(el.id)
+              return <StrokePath key={el.id} el={el} ox={o?.dx} oy={o?.dy} scale={scaleFor(el.id)} />
+            })}
+            <path ref={livePathRef} />
+          </g>
         </svg>
         {selected.map((el) => {
             let b = elementBounds(el, textHeights.current)

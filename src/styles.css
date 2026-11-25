@@ -254,7 +254,7 @@ button {
 .size {
   display: grid;
   place-items: center;
-  width: 34px;
+  width: 30px;
   height: 34px;
   border-radius: 8px;
 }
@@ -302,6 +302,15 @@ button {
 }
 .canvas.tool-text {
   cursor: text;
+}
+
+/* the paper's dots / grid / lines, moved as a layer while scrolling (see Canvas) */
+.paper-pattern {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform;
 }
 
 .world {

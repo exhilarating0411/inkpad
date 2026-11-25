@@ -88,15 +88,21 @@ export function strokePath(flat: number[], opts: ReturnType<typeof strokeOptions
   return outlineToPath(getStroke(smoothTriples(flat), opts))
 }
 
+/**
+ * A number with at most 2 decimals, as text. (Rounding then printing is several times faster than
+ * toFixed, which made opening a page of handwriting slow; trailing zeros are simply left out.)
+ */
+const r2 = (n: number) => Math.round(n * 100) / 100
+
 /** Converts perfect-freehand's outline polygon into a smooth SVG path. */
 function outlineToPath(points: number[][]): string {
   const len = points.length
   if (len < 4) return ''
-  const avg = (a: number, b: number) => ((a + b) / 2).toFixed(2)
+  const avg = (a: number, b: number) => r2((a + b) / 2)
   let a = points[0]
   let b = points[1]
   const c = points[2]
-  let d = `M${a[0].toFixed(2)},${a[1].toFixed(2)} Q${b[0].toFixed(2)},${b[1].toFixed(2)} ${avg(b[0], c[0])},${avg(b[1], c[1])} T`
+  let d = `M${r2(a[0])},${r2(a[1])} Q${r2(b[0])},${r2(b[1])} ${avg(b[0], c[0])},${avg(b[1], c[1])} T`
   for (let i = 2; i < len - 1; i++) {
     a = points[i]
     b = points[i + 1]

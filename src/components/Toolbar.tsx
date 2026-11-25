@@ -8,7 +8,13 @@ import PaperMenu from './PaperMenu'
 
 export const PEN_COLORS = [INK, '#2563eb', '#dc2626', '#16a34a', '#7c3aed', '#ea580c']
 export const HL_COLORS = ['#facc15', '#4ade80', '#38bdf8', '#f472b6', '#fb923c']
-export const PEN_SIZES = [2, 4, 7]
+export const PEN_SIZES = [1, 1.5, 2, 4, 7]
+const PEN_SIZE_NAMES = ['Extra fine', 'Fine', 'Thin', 'Medium', 'Thick']
+const HL_SIZE_NAMES = ['Thin', 'Medium', 'Thick']
+/** the dot shown on each size button (px), clearly different even for the fine pens */
+const PEN_DOTS = [3, 5, 7, 11, 16]
+const HL_DOTS = [4, 9, 14]
+const sizeDot = (i: number, highlighter: boolean) => (highlighter ? HL_DOTS : PEN_DOTS)[i]
 export const HL_SIZES = [12, 20, 30]
 export const TEXT_SIZES = [14, 18, 26]
 
@@ -78,10 +84,11 @@ export default function Toolbar({ tool, onTool, ink, onInk, api, zoom, paper, on
             <button
               key={s}
               className={'size' + ((isHl ? ink.hlSize : ink.penSize) === s ? ' active' : '')}
-              aria-label={['Thin', 'Medium', 'Thick'][i]}
+              aria-label={(isHl ? HL_SIZE_NAMES : PEN_SIZE_NAMES)[i]}
+              title={(isHl ? HL_SIZE_NAMES : PEN_SIZE_NAMES)[i]}
               onClick={() => onInk(isHl ? { hlSize: s } : { penSize: s })}
             >
-              <span style={{ width: 4 + i * 5, height: 4 + i * 5 }} />
+              <span style={{ width: sizeDot(i, isHl), height: sizeDot(i, isHl) }} />
             </button>
           ))}
         </div>
