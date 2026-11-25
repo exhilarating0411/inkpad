@@ -2,6 +2,10 @@
 # when a version tag is pushed (e.g. `git tag v1.0.1 && git push origin v1.0.1`).
 # The installed app finds new releases here and updates itself.
 # The tag must match "version" in package.json.
+#
+# electron-builder only builds; the files are uploaded with GitHub's own `gh`
+# tool and then checked, so a release never ends up without its installer
+# (v1.0.0 once got only the .blockmap from electron-builder's own upload).
 name: Release Windows app
 
 on:
@@ -14,6 +18,12 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,12 +31,26 @@ jobs:
           node-version: 22
           cache: npm
       - name: Tag and package.json agree
-        shell: bash
         run: |
           v=$(node -p "require('./package.json').version")
-          if [ "v$v" != "$GITHUB_REF_NAME" ]; then echo "Tag $GITHUB_REF_NAME but package.json says $v"; exit 1; fi
+          if [ "v$v" != "$TAG" ]; then echo "Tag $TAG but package.json says $v"; exit 1; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
       - run: npm ci
       - run: npm run desktop:build
-      - run: npx electron-builder --win --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the installer
+        run: npx electron-builder --win --publish never
+      - name: Upload to the release
+        run: |
+          files=("release/NeatNotes-Setup-$VERSION.exe" "release/NeatNotes-Setup-$VERSION.exe.blockmap" "release/latest.yml")
+          ls -l "${files[@]}"
+          grep -q "NeatNotes-Setup-$VERSION.exe" release/latest.yml
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --title "NeatNotes $VERSION" --notes "NeatNotes $VERSION for Windows. Download NeatNotes-Setup-$VERSION.exe and run it."
+          gh release upload "$TAG" "${files[@]}" --clobber
+      - name: Check the release has every file
+        run: |
+          for name in "NeatNotes-Setup-$VERSION.exe" "NeatNotes-Setup-$VERSION.exe.blockmap" latest.yml; do
+            size=$(gh release view "$TAG" --json assets --jq ".assets[] | select(.name == \"$name\") | .size")
+            want=$(stat -c %s "release/$name")
+            echo "$name: release $size bytes, built $want bytes"
+            if [ "$size" != "$want" ]; then echo "::error::$name is missing or incomplete in the release"; exit 1; fi
+          done
