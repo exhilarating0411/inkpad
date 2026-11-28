@@ -25,7 +25,7 @@ import type { SyncState } from '../sync/sync'
 import { describe, isPending, usePending } from './SyncSettings'
 import { ActionMenu, PickDialog, menuAt, useWorkspaceVersion, type OpenMenu, type PickItem } from './Menu'
 import { Icons } from './icons'
-import { APP_VERSION, useDesktopUpdate, useNewerVersion, versionLabel } from '../version'
+import { APP_VERSION, installWebUpdate, useDesktopUpdate, useNewerVersion, versionLabel } from '../version'
 import { desktop } from '../desktop/api'
 import type { ExportRequest } from '../export/plan'
 import { pageExport } from '../export/plan'
@@ -79,6 +79,8 @@ export default function PageTree(props: Props) {
   const pending = usePending()
   const newer = useNewerVersion()
   const desktopUpdate = useDesktopUpdate()
+  /** website: 'busy' while the newer version downloads, or why it could not */
+  const [updating, setUpdating] = useState<'busy' | { error: string } | null>(null)
 
   // the open page is always visible: its parents are expanded
   useEffect(() => {
@@ -207,7 +209,19 @@ export default function PageTree(props: Props) {
           <span>Version {versionLabel(APP_VERSION)}</span>
           {newer && (
             <span className="version-new">
-              Newer version online ({versionLabel(newer)}). Close NeatNotes completely and open it again to update.
+              Newer version online ({versionLabel(newer)}).{' '}
+              <button
+                type="button"
+                className="link-btn inline"
+                disabled={updating === 'busy'}
+                onClick={() => {
+                  setUpdating('busy')
+                  installWebUpdate().catch((e) => setUpdating({ error: e instanceof Error ? e.message : String(e) }))
+                }}
+              >
+                {updating === 'busy' ? 'Updating…' : 'Update now'}
+              </button>
+              {updating && updating !== 'busy' && <> Could not update ({updating.error}). Check the connection and try again.</>}
             </span>
           )}
           {desktopUpdate && (

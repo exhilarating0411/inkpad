@@ -32,6 +32,36 @@ async function onlineVersion(): Promise<AppVersion | null> {
   }
 }
 
+/**
+ * Website / home-screen app: fetches the newer version into the offline cache, then reloads into it.
+ * (Without this, the cache only changes when the app is closed completely, and the new version
+ * shows the time after that.) Fails when the new version cannot be downloaded, e.g. offline.
+ */
+export async function installWebUpdate(): Promise<void> {
+  const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : undefined
+  if (reg) {
+    await reg.update()
+    const worker = reg.installing ?? reg.waiting
+    if (worker)
+      await new Promise<void>((resolve, reject) => {
+        // a new version takes over as soon as it is installed (registerType: 'autoUpdate')
+        const timer = window.setTimeout(resolve, 60_000)
+        const check = () => {
+          if (worker.state === 'activated') {
+            window.clearTimeout(timer)
+            resolve()
+          } else if (worker.state === 'redundant') {
+            window.clearTimeout(timer)
+            reject(new Error('the new version could not be installed'))
+          }
+        }
+        worker.addEventListener('statechange', check)
+        check()
+      })
+  }
+  location.reload()
+}
+
 /** Windows app: a newer version that was downloaded and is ready to install. */
 export function useDesktopUpdate(): string | null {
   const [ready, setReady] = useState<string | null>(null)
