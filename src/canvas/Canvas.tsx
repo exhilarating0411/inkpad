@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid'
 import type { CanvasElement, ImageElement, StrokeElement, TextElement, Tool, Viewport } from '../store/types'
 import { LOCAL, TYPING, openPage } from '../store/workspace'
 import { storeImage } from '../store/images'
-import { PREDICT_MS, computeBBox, strokeOptions, strokePath } from './ink'
+import { PREDICT_MS, computeBBox, recentPointAt, strokeOptions, strokePath } from './ink'
 import {
   elementBounds,
   elementInLasso,
@@ -800,7 +800,6 @@ export default function Canvas(props: Props) {
         for (const ev of evs.length ? evs : [e.nativeEvent]) {
           const p = toScreen(ev)
           const w = toWorld(p.x, p.y)
-          const n = g.points.length
           const x = round1(w.x)
           const y = round1(w.y)
           const pressure = g.pressure ? Math.round((ev.pressure || 0.5) * 100) / 100 : 0.5
@@ -809,7 +808,12 @@ export default function Canvas(props: Props) {
             g.points[2] = pressure
             g.firstPressureMissing = false
           }
-          if (x === g.points[n - 3] && y === g.points[n - 2]) continue
+          // iPad sends each Apple Pencil point again once its pressure is known: a correction, not a new point
+          const again = recentPointAt(g.points, x, y)
+          if (again >= 0) {
+            if (g.pressure) g.points[again + 2] = pressure
+            continue
+          }
           g.points.push(x, y, pressure)
           g.times.push(ev.timeStamp)
         }

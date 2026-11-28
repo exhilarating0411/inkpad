@@ -84,8 +84,31 @@ export function smoothTriples(flat: number[]): number[][] {
   return out
 }
 
+/** how many of the latest points a repeated reading is looked for in (see withoutRepeats) */
+export const REPEAT_WINDOW = 4
+
+/** Index of the point among the last REPEAT_WINDOW of `flat` that lies exactly at (x, y), or -1. */
+export function recentPointAt(flat: number[], x: number, y: number): number {
+  for (let i = flat.length - 3, k = 0; i >= 0 && k < REPEAT_WINDOW; i -= 3, k++) if (flat[i] === x && flat[i + 1] === y) return i
+  return -1
+}
+
+/**
+ * The points without readings that repeat one of the last few: iPad sends each Apple Pencil point
+ * again with corrected pressure, and strokes saved before that was handled go back and forth
+ * (a b c d b c d e d e f …). Every turn back drew a round cap, so the line looked like a string of dots.
+ */
+export function withoutRepeats(flat: number[]): number[] {
+  const out: number[] = []
+  for (let i = 0; i < flat.length; i += 3) {
+    if (recentPointAt(out, flat[i], flat[i + 1]) >= 0) continue
+    out.push(flat[i], flat[i + 1], flat[i + 2])
+  }
+  return out
+}
+
 export function strokePath(flat: number[], opts: ReturnType<typeof strokeOptions>): string {
-  return outlineToPath(getStroke(smoothTriples(flat), opts))
+  return outlineToPath(getStroke(smoothTriples(withoutRepeats(flat)), opts))
 }
 
 /**
@@ -117,7 +140,7 @@ function outlineToPath(points: number[][]): string {
  * reader does not handle chained T commands.
  */
 export function strokePathExplicit(flat: number[], opts: ReturnType<typeof strokeOptions>): string {
-  const points = getStroke(smoothTriples(flat), opts)
+  const points = getStroke(smoothTriples(withoutRepeats(flat)), opts)
   const len = points.length
   if (len < 4) return ''
   const f = (n: number) => n.toFixed(2)
