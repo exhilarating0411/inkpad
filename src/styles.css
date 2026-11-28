@@ -305,7 +305,7 @@ button {
 }
 
 /* the paper's dots / grid / lines, moved as a layer while scrolling (see Canvas) */
-.paper-pattern {
+.paper-layer {
   position: absolute;
   left: 0;
   top: 0;

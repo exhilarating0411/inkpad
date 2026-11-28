@@ -1143,7 +1143,7 @@ export default function Canvas(props: Props) {
     <div
       ref={rootRef}
       className={`canvas tool-${tool}`}
-      // only the paper colour here: nothing on this element changes while scrolling (see .paper-pattern)
+      // only the paper colour here: nothing on this element changes while scrolling (see .paper-layer)
       style={{ backgroundColor: paperCss(props.paper.color), backgroundImage: 'none' }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -1165,7 +1165,7 @@ export default function Canvas(props: Props) {
           (The pattern gets too dense to be useful when zoomed far out.) */}
       {gap >= 8 && patternImage(props.paper.pattern) !== 'none' && (
         <div
-          className="paper-pattern"
+          className="paper-layer"
           style={{
             width: `calc(100% + ${2 * gap}px)`,
             height: `calc(100% + ${2 * gap}px)`,
